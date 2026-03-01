@@ -43,11 +43,10 @@ bool TitaevSortirovkaBetcheraSEQ::PreProcessingImpl() {
   return true;
 }
 
-void TitaevSortirovkaBetcheraSEQ::ConvertToKeys(std::vector<uint64_t> &keys) {
-  auto &result = GetOutput();
-  const size_t n = result.size();
+void TitaevSortirovkaBetcheraSEQ::ConvertToKeys(const InType &input, std::vector<uint64_t> &keys) {
+  const size_t n = input.size();
   for (size_t i = 0; i < n; i++) {
-    keys[i] = DoubleToOrderedUint(result[i]);
+    keys[i] = DoubleToOrderedUint(input[i]);
   }
 }
 
@@ -57,26 +56,26 @@ void TitaevSortirovkaBetcheraSEQ::RadixSort(std::vector<uint64_t> &keys) {
     return;
   }
 
-  constexpr int bits = 8;
-  constexpr int buckets = 1 << bits;
-  constexpr int passes = 64 / bits;
+  constexpr int kBits = 8;
+  constexpr int kBuckets = 1 << kBits;
+  constexpr int kPasses = 64 / kBits;
 
   std::vector<uint64_t> tmp(n);
 
-  for (int pass = 0; pass < passes; pass++) {
-    std::vector<size_t> count(buckets, 0);
+  for (int pass = 0; pass < kPasses; pass++) {
+    std::vector<size_t> count(kBuckets, 0);
 
     for (size_t i = 0; i < n; i++) {
-      size_t bucket = (keys[i] >> (pass * bits)) & (buckets - 1);
+      size_t bucket = (keys[i] >> (pass * kBits)) & (kBuckets - 1);
       count[bucket]++;
     }
 
-    for (int i = 1; i < buckets; i++) {
+    for (int i = 1; i < kBuckets; i++) {
       count[i] += count[i - 1];
     }
 
     for (size_t i = n; i-- > 0;) {
-      size_t bucket = (keys[i] >> (pass * bits)) & (buckets - 1);
+      size_t bucket = (keys[i] >> (pass * kBits)) & (kBuckets - 1);
       tmp[--count[bucket]] = keys[i];
     }
 
@@ -84,11 +83,26 @@ void TitaevSortirovkaBetcheraSEQ::RadixSort(std::vector<uint64_t> &keys) {
   }
 }
 
-void TitaevSortirovkaBetcheraSEQ::ConvertFromKeys(const std::vector<uint64_t> &keys) {
-  auto &result = GetOutput();
-  const size_t n = result.size();
+void TitaevSortirovkaBetcheraSEQ::ConvertFromKeys(const std::vector<uint64_t> &keys, OutType &output) {
+  const size_t n = keys.size();
+  output.resize(n);
   for (size_t i = 0; i < n; i++) {
-    result[i] = OrderedUintToDouble(keys[i]);
+    output[i] = OrderedUintToDouble(keys[i]);
+  }
+}
+
+void TitaevSortirovkaBetcheraSEQ::BatcherStep(OutType &result, size_t n, size_t step, size_t stage) {
+  for (size_t i = 0; i < n; i++) {
+    size_t j = i ^ stage;
+    if (j <= i || j >= n) {
+      continue;
+    }
+
+    const bool ascending = (i & step) == 0;
+    const bool need_swap = ascending ? result[i] > result[j] : result[i] < result[j];
+    if (need_swap) {
+      std::swap(result[i], result[j]);
+    }
   }
 }
 
@@ -98,33 +112,23 @@ void TitaevSortirovkaBetcheraSEQ::BatcherSort() {
 
   for (size_t step = 1; step < n; step <<= 1) {
     for (size_t stage = step; stage > 0; stage >>= 1) {
-      for (size_t i = 0; i < n; i++) {
-        size_t j = i ^ stage;
-        if (j <= i || j >= n) {
-          continue;
-        }
-
-        const bool ascending = (i & step) == 0;
-        const bool needSwap = ascending ? result[i] > result[j] : result[i] < result[j];
-        if (needSwap) {
-          std::swap(result[i], result[j]);
-        }
-      }
+      BatcherStep(result, n, step, stage);
     }
   }
 }
 
 bool TitaevSortirovkaBetcheraSEQ::RunImpl() {
-  auto &result = GetOutput();
-  const size_t n = result.size();
+  auto &input = GetInput();
+  const size_t n = input.size();
   if (n <= 1) {
+    GetOutput() = input;
     return true;
   }
 
   std::vector<uint64_t> keys(n);
-  ConvertToKeys(keys);
+  ConvertToKeys(input, keys);
   RadixSort(keys);
-  ConvertFromKeys(keys);
+  ConvertFromKeys(keys, GetOutput());
   BatcherSort();
 
   return true;

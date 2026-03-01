@@ -21,10 +21,12 @@ class TitaevSortirovkaBetcheraSEQ : public BaseTask {
   bool RunImpl() override;
   bool PostProcessingImpl() override;
 
-  void ConvertToKeys(std::vector<uint64_t> &keys);
-  void RadixSort(std::vector<uint64_t> &keys);
-  void ConvertFromKeys(const std::vector<uint64_t> &keys);
+  static void ConvertToKeys(const InType &input, std::vector<uint64_t> &keys);
+  static void RadixSort(std::vector<uint64_t> &keys);
+  static void ConvertFromKeys(const std::vector<uint64_t> &keys, OutType &output);
   void BatcherSort();
+
+  static void BatcherStep(OutType &result, size_t n, size_t step, size_t stage);
 };
 
 }  // namespace titaev_m_sortirovka_betchera
