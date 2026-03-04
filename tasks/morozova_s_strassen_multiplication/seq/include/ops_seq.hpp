@@ -18,14 +18,15 @@ class MorozovaSStrassenMultiplicationSEQ : public BaseTask {
   bool RunImpl() override;
   bool PostProcessingImpl() override;
 
-  [[nodiscard]] Matrix AddMatrix(const Matrix &a, const Matrix &b) const;
-  [[nodiscard]] Matrix SubtractMatrix(const Matrix &a, const Matrix &b) const;
-  [[nodiscard]] Matrix MultiplyStrassen(const Matrix &a, const Matrix &b, int leaf_size = 64) const;
-  [[nodiscard]] Matrix MultiplyStandard(const Matrix &a, const Matrix &b) const;
-  void SplitMatrix(const Matrix &m, Matrix &m11, Matrix &m12, Matrix &m21, Matrix &m22) const;
-  [[nodiscard]] Matrix MergeMatrices(const Matrix &m11, const Matrix &m12, const Matrix &m21, const Matrix &m22) const;
+  static Matrix AddMatrix(const Matrix &a, const Matrix &b);
+  static Matrix SubtractMatrix(const Matrix &a, const Matrix &b);
+  static Matrix MultiplyStrassen(const Matrix &a, const Matrix &b, int leaf_size = 64);
+  static Matrix MultiplyStandard(const Matrix &a, const Matrix &b);
+  static void SplitMatrix(const Matrix &m, Matrix &m11, Matrix &m12, Matrix &m21, Matrix &m22);
+  static Matrix MergeMatrices(const Matrix &m11, const Matrix &m12, const Matrix &m21, const Matrix &m22);
 
   Matrix a_, b_, c_;
   int n_{0};
 };
+
 }  // namespace morozova_s_strassen_multiplication

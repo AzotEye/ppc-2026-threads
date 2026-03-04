@@ -3,6 +3,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <string>
 #include <tuple>
 
@@ -21,108 +22,153 @@ class MorozovaSStrassenMultiplicationFuncTests : public ppc::util::BaseRunFuncTe
  protected:
   void SetUp() override {
     TestType params = std::get<static_cast<std::size_t>(ppc::util::GTestParamIndex::kTestParams)>(GetParam());
-    int test_number = std::get<0>(params);
+    test_number_ = std::get<0>(params);
+    SetupTestData();
+  }
 
-    switch (test_number) {
-      case 1: {
-        input_data_ = {2.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+  bool CheckTestOutputData(OutType &output_data) final {
+    if (test_number_ == 6 || test_number_ == 7) {
+      return true;
+    }
+    return ValidateMultiplicationResult(output_data);
+  }
+
+  InType GetTestInputData() final {
+    return input_data_;
+  }
+
+ private:
+  void SetupTestData() {
+    switch (test_number_) {
+      case 1:
+        SetupTest1();
         break;
-      }
-      case 2: {
-        input_data_ = {4.0};
-        for (int i = 0; i < 4; ++i) {
-          for (int j = 0; j < 4; ++j) {
-            input_data_.push_back(i == j ? 1.0 : 0.0);
-          }
-        }
-        for (int i = 0; i < 4; ++i) {
-          for (int j = 0; j < 4; ++j) {
-            input_data_.push_back((i * 4) + j + 1.0);
-          }
-        }
+      case 2:
+        SetupTest2();
         break;
-      }
-      case 3: {
-        input_data_ = {8.0};
-        for (int i = 0; i < 8; ++i) {
-          for (int j = 0; j < 8; ++j) {
-            input_data_.push_back(static_cast<double>(i + 1) * (j + 1) * 0.5);
-          }
-        }
-        for (int i = 0; i < 8; ++i) {
-          for (int j = 0; j < 8; ++j) {
-            input_data_.push_back(static_cast<double>(i + j + 1) * 0.3);
-          }
-        }
+      case 3:
+        SetupTest3();
         break;
-      }
-      case 4: {
-        input_data_ = {16.0};
-        for (int i = 0; i < 16; ++i) {
-          for (int j = 0; j < 16; ++j) {
-            input_data_.push_back(std::sin(static_cast<double>(i + j)) * 10.0);
-          }
-        }
-        for (int i = 0; i < 16; ++i) {
-          for (int j = 0; j < 16; ++j) {
-            input_data_.push_back(std::cos(static_cast<double>(i - j)) * 5.0);
-          }
-        }
+      case 4:
+        SetupTest4();
         break;
-      }
-      case 5: {
-        input_data_ = {32.0};
-        for (int i = 0; i < 32; ++i) {
-          for (int j = 0; j < 32; ++j) {
-            input_data_.push_back(static_cast<double>((i * 32) + j + 1));
-          }
-        }
-        for (int i = 0; i < 32; ++i) {
-          for (int j = 0; j < 32; ++j) {
-            input_data_.push_back(static_cast<double>(((i + j) * 2) + 1));
-          }
-        }
+      case 5:
+        SetupTest5();
         break;
-      }
-      case 6: {
-        input_data_ = {};
+      case 6:
+        SetupTest6();
         break;
-      }
-      case 7: {
-        input_data_ = {0.0, 1.0, 2.0, 3.0, 4.0};
+      case 7:
+        SetupTest7();
         break;
-      }
       default:
-        input_data_ = {2.0, 1.0, 0.0, 0.0, 1.0, 1.0, 2.0, 3.0, 4.0};
+        SetupDefaultTest();
         break;
     }
   }
 
-  bool CheckTestOutputData(OutType &output_data) final {
-    TestType params = std::get<static_cast<std::size_t>(ppc::util::GTestParamIndex::kTestParams)>(GetParam());
-    int test_number = std::get<0>(params);
-    if (test_number == 6 || test_number == 7) {
-      return true;
+  void SetupTest1() {
+    input_data_ = {2.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0};
+  }
+
+  void SetupTest2() {
+    input_data_ = {4.0};
+    AddIdentityMatrix(4);
+    AddSequentialMatrix(4);
+  }
+
+  void SetupTest3() {
+    input_data_ = {8.0};
+    AddWeightedMatrix(8, [](int i, int j) { return static_cast<double>(i + 1) * (j + 1) * 0.5; });
+    AddWeightedMatrix(8, [](int i, int j) { return static_cast<double>(i + j + 1) * 0.3; });
+  }
+
+  void SetupTest4() {
+    input_data_ = {16.0};
+    AddWeightedMatrix(16, [](int i, int j) { return std::sin(static_cast<double>(i + j)) * 10.0; });
+    AddWeightedMatrix(16, [](int i, int j) { return std::cos(static_cast<double>(i - j)) * 5.0; });
+  }
+
+  void SetupTest5() {
+    input_data_ = {32.0};
+    AddWeightedMatrix(32, [](int i, int j) { return static_cast<double>((i * 32) + j + 1); });
+    AddWeightedMatrix(32, [](int i, int j) { return static_cast<double>(((i + j) * 2) + 1); });
+  }
+
+  void SetupTest6() {
+    input_data_ = {};
+  }
+
+  void SetupTest7() {
+    input_data_ = {0.0, 1.0, 2.0, 3.0, 4.0};
+  }
+
+  void SetupDefaultTest() {
+    input_data_ = {2.0, 1.0, 0.0, 0.0, 1.0, 1.0, 2.0, 3.0, 4.0};
+  }
+
+  void AddIdentityMatrix(int n) {
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j < n; ++j) {
+        input_data_.push_back(i == j ? 1.0 : 0.0);
+      }
+    }
+  }
+
+  void AddSequentialMatrix(int n) {
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j < n; ++j) {
+        input_data_.push_back(static_cast<double>((i * n) + j + 1));
+      }
+    }
+  }
+
+  void AddWeightedMatrix(int n, std::function<double(int, int)> weight_func) {
+    for (int i = 0; i < n; ++i) {
+      for (int j = 0; j < n; ++j) {
+        input_data_.push_back(weight_func(i, j));
+      }
+    }
+  }
+
+  bool ValidateMultiplicationResult(OutType &output_data) {
+    int n = static_cast<int>(input_data_[0]);
+    Matrix a = ExtractMatrixA(n);
+    Matrix b = ExtractMatrixB(n);
+    Matrix expected = ComputeExpectedResult(a, b);
+
+    if (output_data.empty() || static_cast<int>(output_data[0]) != n) {
+      return false;
     }
 
-    int n = static_cast<int>(input_data_[0]);
-    Matrix a(n);
-    Matrix b(n);
-    Matrix expected(n);
+    return CompareMatrices(output_data, expected, n);
+  }
 
+  Matrix ExtractMatrixA(int n) const {
+    Matrix a(n);
     int idx = 1;
     for (int i = 0; i < n; ++i) {
       for (int j = 0; j < n; ++j) {
         a(i, j) = input_data_[idx++];
       }
     }
+    return a;
+  }
 
+  Matrix ExtractMatrixB(int n) const {
+    Matrix b(n);
+    int idx = 1 + n * n;
     for (int i = 0; i < n; ++i) {
       for (int j = 0; j < n; ++j) {
         b(i, j) = input_data_[idx++];
       }
     }
+    return b;
+  }
 
+  Matrix ComputeExpectedResult(const Matrix &a, const Matrix &b) const {
+    int n = a.size;
+    Matrix expected(n);
     for (int i = 0; i < n; ++i) {
       for (int j = 0; j < n; ++j) {
         double sum = 0.0;
@@ -132,11 +178,10 @@ class MorozovaSStrassenMultiplicationFuncTests : public ppc::util::BaseRunFuncTe
         expected(i, j) = sum;
       }
     }
+    return expected;
+  }
 
-    if (output_data.empty() || static_cast<int>(output_data[0]) != n) {
-      return false;
-    }
-
+  bool CompareMatrices(const OutType &output_data, const Matrix &expected, int n) const {
     const double eps = 1e-6;
     for (int i = 0; i < n; ++i) {
       for (int j = 0; j < n; ++j) {
@@ -147,16 +192,11 @@ class MorozovaSStrassenMultiplicationFuncTests : public ppc::util::BaseRunFuncTe
         }
       }
     }
-
     return true;
   }
 
-  InType GetTestInputData() final {
-    return input_data_;
-  }
-
- private:
   InType input_data_;
+  int test_number_{0};
 };
 
 namespace {
