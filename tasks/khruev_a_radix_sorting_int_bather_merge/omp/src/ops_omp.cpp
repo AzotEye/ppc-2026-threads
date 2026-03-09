@@ -111,15 +111,16 @@ bool KhruevARadixSortingIntBatherMergeOMP::RunImpl() {
 #pragma omp section
     {
       RadixSort(left);
-      std::copy(left.begin(), left.end(), data.begin());
     }
 
 #pragma omp section
     {
       RadixSort(right);
-      std::copy(right.begin(), right.end(), data.begin() + half_dist);
     }
   }
+
+  std::ranges::copy(left, data.begin());
+  std::ranges::copy(right, data.begin() + half_dist);
 
   OddEvenMerge(data, data.size());
 
