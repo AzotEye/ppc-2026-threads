@@ -18,7 +18,6 @@
 
 namespace redkina_a_integral_simpson_seq {
 
-// Базовый класс тестов (один для всех технологий)
 class RedkinaAIntegralSimpsonFuncTests : public ppc::util::BaseRunFuncTests<InType, OutType, TestType> {
  public:
   static std::string PrintTestParam(const TestType &test_param) {
