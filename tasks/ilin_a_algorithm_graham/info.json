@@ -1,14 +1,8 @@
 {
   "student": {
-<<<<<<< ilin_a_graham_omp
     "first_name": "Артемий",
     "group_number": "3823Б1ПР1",
     "last_name": "Ильин",
-=======
-    "first_name": "Ильин",
-    "group_number": "3823Б1ПР1",
-    "last_name": "Артемий",
->>>>>>> master
     "middle_name": "Александрович",
     "task_number": "1"
   }
