@@ -10,13 +10,28 @@
 #include <vector>
 
 #include "melnik_i_radix_sort_int/common/include/common.hpp"
+#include "util/include/util.hpp"
 
 namespace melnik_i_radix_sort_int {
 
 namespace {
 
-constexpr int kBitsPerDigit = 8;
-constexpr int kBuckets = 1 << kBitsPerDigit;
+constexpr int kBitsPerPass = 8;
+constexpr std::size_t kBuckets = 1U << kBitsPerPass;
+
+std::vector<MelnikIRadixSortIntOMP::Range> BuildInitialRanges(std::size_t data_size, int num_ranges) {
+  std::vector<MelnikIRadixSortIntOMP::Range> ranges(static_cast<std::size_t>(num_ranges));
+  const std::size_t chunk_size =
+      (data_size + static_cast<std::size_t>(num_ranges) - 1U) / static_cast<std::size_t>(num_ranges);
+
+  for (int range_index = 0; range_index < num_ranges; ++range_index) {
+    const std::size_t begin = static_cast<std::size_t>(range_index) * chunk_size;
+    const std::size_t end = std::min(begin + chunk_size, data_size);
+    ranges[static_cast<std::size_t>(range_index)] = MelnikIRadixSortIntOMP::Range{begin, end};
+  }
+
+  return ranges;
+}
 
 }  // namespace
 
@@ -39,104 +54,155 @@ bool MelnikIRadixSortIntOMP::RunImpl() {
   if (GetOutput().empty()) {
     return false;
   }
-  RadixSort(GetOutput());
+
+  const std::size_t data_size = GetOutput().size();
+  const int requested_threads = std::max(1, ppc::util::GetNumThreads());
+  const int num_threads = std::min<int>(requested_threads, static_cast<int>(data_size));
+
+  std::vector<int> buffer(data_size);
+
+  if (num_threads <= 1) {
+    RadixSortRange(GetOutput(), buffer, 0, data_size);
+    return !GetOutput().empty();
+  }
+
+  const std::vector<Range> ranges = BuildInitialRanges(data_size, num_threads);
+
+#pragma omp parallel for schedule(static) num_threads(num_threads)
+  for (int range_index = 0; range_index < num_threads; ++range_index) {
+    const Range range = ranges[static_cast<std::size_t>(range_index)];
+    if (range.begin < range.end) {
+      RadixSortRange(GetOutput(), buffer, range.begin, range.end);
+    }
+  }
+
+  MergeSortedRanges(GetOutput(), buffer, ranges);
   return !GetOutput().empty();
 }
 
 bool MelnikIRadixSortIntOMP::PostProcessingImpl() {
-  return std::is_sorted(GetOutput().begin(), GetOutput().end());
+  return std::ranges::is_sorted(GetOutput());
 }
 
-int MelnikIRadixSortIntOMP::GetMaxValue(const OutType &data) {
-  return *std::ranges::max_element(data);
+void MelnikIRadixSortIntOMP::CountingSortByByte(const std::vector<int> &source, std::vector<int> &destination,
+                                                std::size_t begin, std::size_t end, std::int64_t exp,
+                                                std::int64_t offset) {
+  std::array<std::size_t, kBuckets> count{};
+  count.fill(0);
+
+  for (std::size_t index = begin; index < end; ++index) {
+    const std::int64_t shifted_value = static_cast<std::int64_t>(source[index]) + offset;
+    const std::size_t bucket = static_cast<std::size_t>((shifted_value / exp) % static_cast<std::int64_t>(kBuckets));
+    ++count[bucket];
+  }
+
+  std::array<std::size_t, kBuckets> positions{};
+  positions[0] = begin;
+  for (std::size_t bucket = 1; bucket < kBuckets; ++bucket) {
+    positions[bucket] = positions[bucket - 1] + count[bucket - 1];
+  }
+
+  for (std::size_t index = begin; index < end; ++index) {
+    const std::int64_t shifted_value = static_cast<std::int64_t>(source[index]) + offset;
+    const std::size_t bucket = static_cast<std::size_t>((shifted_value / exp) % static_cast<std::int64_t>(kBuckets));
+    destination[positions[bucket]] = source[index];
+    ++positions[bucket];
+  }
 }
 
-void MelnikIRadixSortIntOMP::ParallelCountingSort(OutType &data, int exp, int offset) {
-  const auto n = static_cast<int>(data.size());
-  if (n == 0) {
+void MelnikIRadixSortIntOMP::RadixSortRange(std::vector<int> &data, std::vector<int> &buffer, std::size_t begin,
+                                            std::size_t end) {
+  if (end - begin <= 1) {
     return;
   }
 
-  const int num_threads = omp_get_max_threads();
-  const int chunk_size = (n + num_threads - 1) / num_threads;
+  std::vector<int> *source = &data;
+  std::vector<int> *destination = &buffer;
+  const auto range_begin = data.begin() + static_cast<ptrdiff_t>(begin);
+  const auto range_end = data.begin() + static_cast<ptrdiff_t>(end);
+  const auto [min_it, max_it] = std::ranges::minmax_element(range_begin, range_end);
+  const std::int64_t min_value = static_cast<std::int64_t>(*min_it);
+  const std::int64_t max_value = static_cast<std::int64_t>(*max_it);
+  const std::int64_t offset = (min_value < 0) ? -min_value : 0;
+  const std::int64_t max_shifted_value = max_value + offset;
 
-  std::vector<int> local_counts(static_cast<std::int64_t>(num_threads) * kBuckets, 0);
+  for (std::int64_t exp = 1; max_shifted_value / exp > 0; exp <<= kBitsPerPass) {
+    CountingSortByByte(*source, *destination, begin, end, exp, offset);
+    std::swap(source, destination);
+  }
 
-#pragma omp parallel default(none) shared(data, local_counts, n, chunk_size, exp, offset)
-  {
-    const int thread_id = omp_get_thread_num();
-    const int start = thread_id * chunk_size;
-    const int end = (start + chunk_size < n) ? (start + chunk_size) : n;
-    int *local_count = &local_counts[static_cast<std::int64_t>(thread_id) * kBuckets];
+  if (source != &data) {
+    std::copy(source->begin() + static_cast<ptrdiff_t>(begin), source->begin() + static_cast<ptrdiff_t>(end),
+              data.begin() + static_cast<ptrdiff_t>(begin));
+  }
+}
 
-    for (int i = start; i < end; i++) {
-      int digit = ((data[i] + offset) / exp) % kBuckets;
-      local_count[digit]++;
+void MelnikIRadixSortIntOMP::MergeRanges(const std::vector<int> &source, std::vector<int> &destination, Range left,
+                                         Range right, std::size_t write_begin) {
+  std::size_t left_index = left.begin;
+  std::size_t right_index = right.begin;
+  std::size_t write_index = write_begin;
+
+  while (left_index < left.end && right_index < right.end) {
+    if (source[left_index] <= source[right_index]) {
+      destination[write_index] = source[left_index];
+      ++left_index;
+    } else {
+      destination[write_index] = source[right_index];
+      ++right_index;
     }
+    ++write_index;
   }
 
-  std::array<int, kBuckets> global_count{};
-
-  for (int thr = 0; thr < num_threads; thr++) {
-    for (int buck = 0; buck < kBuckets; buck++) {
-      global_count.at(buck) += local_counts.at((static_cast<std::size_t>(thr) * static_cast<std::size_t>(kBuckets)) +
-                                               static_cast<std::size_t>(buck));
-    }
+  if (left_index < left.end) {
+    std::copy(source.begin() + static_cast<ptrdiff_t>(left_index), source.begin() + static_cast<ptrdiff_t>(left.end),
+              destination.begin() + static_cast<ptrdiff_t>(write_index));
+    return;
   }
 
-  std::array<int, kBuckets> start_pos{};
-  start_pos.at(0) = 0;
-  for (int i = 1; i < kBuckets; i++) {
-    start_pos.at(static_cast<std::size_t>(i)) =
-        start_pos.at(static_cast<std::size_t>(i) - 1) + global_count.at(static_cast<std::size_t>(i) - 1);
+  std::copy(source.begin() + static_cast<ptrdiff_t>(right_index), source.begin() + static_cast<ptrdiff_t>(right.end),
+            destination.begin() + static_cast<ptrdiff_t>(write_index));
+}
+
+void MelnikIRadixSortIntOMP::MergeSortedRanges(std::vector<int> &data, std::vector<int> &buffer,
+                                               const std::vector<Range> &ranges) {
+  if (ranges.empty()) {
+    return;
   }
 
-  OutType output(n);
+  std::vector<int> *source = &data;
+  std::vector<int> *destination = &buffer;
+  std::vector<Range> current_ranges = ranges;
+  const int num_threads = std::max(1, ppc::util::GetNumThreads());
 
-#pragma omp parallel default(none) shared(data, output, local_counts, n, chunk_size, start_pos, exp, offset)
-  {
-    const int thread_id = omp_get_thread_num();
-    const int start = thread_id * chunk_size;
-    const int end = (start + chunk_size < n) ? (start + chunk_size) : n;
+  while (current_ranges.size() > 1U) {
+    const std::size_t merged_count = (current_ranges.size() + 1U) / 2U;
+    std::vector<Range> next_ranges(merged_count);
 
-    std::array<int, kBuckets> local_pos{};
-    for (int buck = 0; buck < kBuckets; buck++) {
-      int base = start_pos.at(static_cast<std::size_t>(buck));
-      for (int t2 = 0; t2 < thread_id; t2++) {
-        base += local_counts.at((static_cast<std::size_t>(t2) * static_cast<std::size_t>(kBuckets)) +
-                                static_cast<std::size_t>(buck));
+#pragma omp parallel for schedule(static) num_threads(num_threads)
+    for (int pair_index = 0; pair_index < static_cast<int>(merged_count); ++pair_index) {
+      const std::size_t left_pos = static_cast<std::size_t>(pair_index) * 2U;
+      const Range left = current_ranges[left_pos];
+
+      if (left_pos + 1U >= current_ranges.size()) {
+        std::copy(source->begin() + static_cast<ptrdiff_t>(left.begin),
+                  source->begin() + static_cast<ptrdiff_t>(left.end),
+                  destination->begin() + static_cast<ptrdiff_t>(left.begin));
+        next_ranges[static_cast<std::size_t>(pair_index)] = left;
+        continue;
       }
-      local_pos.at(static_cast<std::size_t>(buck)) = base;
+
+      const Range right = current_ranges[left_pos + 1U];
+      MergeRanges(*source, *destination, left, right, left.begin);
+      next_ranges[static_cast<std::size_t>(pair_index)] = Range{left.begin, right.end};
     }
 
-    for (int i = start; i < end; i++) {
-      int digit = ((data[i] + offset) / exp) % kBuckets;
-      output.at(static_cast<std::size_t>(local_pos.at(static_cast<std::size_t>(digit))++)) =
-          data.at(static_cast<std::size_t>(i));
-    }
+    current_ranges = std::move(next_ranges);
+    std::swap(source, destination);
   }
 
-  data = std::move(output);
-}
-
-void MelnikIRadixSortIntOMP::RadixSort(OutType &data) {
-  if (data.empty()) {
-    return;
-  }
-
-  int max_val = GetMaxValue(data);
-  int min_val = *std::ranges::min_element(data);
-
-  if (min_val >= 0) {
-    for (int exp = 1; max_val / exp > 0; exp <<= kBitsPerDigit) {
-      ParallelCountingSort(data, exp, 0);
-    }
-    return;
-  }
-
-  int offset = -min_val;
-  for (int exp = 1; (max_val + offset) / exp > 0 || (min_val + offset) / exp > 0; exp <<= kBitsPerDigit) {
-    ParallelCountingSort(data, exp, offset);
+  if (source != &data) {
+    data.swap(*source);
   }
 }
 
