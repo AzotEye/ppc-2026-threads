@@ -48,7 +48,7 @@ bool BoltenkovSGaussianKernelOMP::RunImpl() {
   std::vector<std::vector<int>> tmp_data(n + 2, std::vector<int>(m + 2, 0));
   std::vector<std::vector<int>> &res = GetOutput();
 
-#pragma omp parallel for num_threads(ppc::util::GetNumThreads()) default(none) shared(tmp_data, data) firstprivate(n, m)
+#pragma omp parallel for num_threads(ppc::util::GetNumThreads()) default(none) shared(tmp_data, data) firstprivate(n)
   for (std::size_t i = 1; i <= n; i++) {
     std::copy(data[i - 1].begin(), data[i - 1].end(), tmp_data[i].begin() + 1);
   }
