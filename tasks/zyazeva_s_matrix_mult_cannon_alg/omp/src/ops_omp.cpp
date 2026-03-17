@@ -13,7 +13,7 @@ namespace zyazeva_s_matrix_mult_cannon_alg {
 std::vector<double> CannonMatrixMultiplication(const std::vector<double> &a, const std::vector<double> &b, int n) {
   int size_block = std::min(n, 64);
 
-  std::vector<double> mtrx_c(n * n, 0.0);
+  std::vector<double> mtrx_c(n * n, 0.0);//6
 
   if (n == 0) {
     return {};
