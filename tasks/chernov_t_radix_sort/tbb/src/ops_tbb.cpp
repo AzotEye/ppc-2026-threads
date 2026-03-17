@@ -77,22 +77,12 @@ void ChernovTRadixSortTBB::RadixSortLSD(std::vector<int> &data) {
 
     ComputePrefixSums(count);
 
-    tbb::combinable<std::vector<int>> local_pos([&count]() {
-      std::vector<int> pos(kRadix);
-      std::copy(count.begin(), count.end(), pos.begin());
-      return pos;
-    });
-
-    tbb::parallel_for(tbb::blocked_range<size_t>(0, n),
-                      [&local_pos, &buffer, &temp, shift](const tbb::blocked_range<size_t> &r) {
-      auto &my_pos = local_pos.local();
-      for (size_t i = r.begin(); i != r.end(); ++i) {
-        uint32_t val = temp[i];
-        int digit = static_cast<int>((val >> shift) & 0xFFU);
-        auto pos = static_cast<size_t>(--my_pos[static_cast<size_t>(digit)]);
-        buffer[pos] = val;
-      }
-    });
+    for (size_t i = n; i-- > 0;) {
+      uint32_t val = temp[i];
+      int digit = static_cast<int>((val >> shift) & 0xFFU);
+      auto pos = static_cast<size_t>(--count[static_cast<size_t>(digit)]);
+      buffer[pos] = val;
+    }
 
     temp.swap(buffer);
   }
@@ -108,9 +98,7 @@ void ChernovTRadixSortTBB::SimpleMerge(const std::vector<int> &left, const std::
                                        std::vector<int> &result) {
   result.resize(left.size() + right.size());
 
-  size_t i = 0;
-  size_t j = 0;
-  size_t k = 0;
+  size_t i = 0, j = 0, k = 0;
 
   while (i < left.size() && j < right.size()) {
     if (left[i] <= right[j]) {
