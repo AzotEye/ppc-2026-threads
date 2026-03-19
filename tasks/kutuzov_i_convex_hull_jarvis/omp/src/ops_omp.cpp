@@ -1,7 +1,8 @@
 #include "kutuzov_i_convex_hull_jarvis/omp/include/ops_omp.hpp"
 
-#include <atomic>
 #include <omp.h>
+
+#include <atomic>
 #include <numeric>
 #include <vector>
 
@@ -29,13 +30,13 @@ size_t KutuzovITestConvexHullOMP::FindLeftmostPoint(const InType &input) {
   double leftmost_x = std::get<0>(input[leftmost]);
   double leftmost_y = std::get<1>(input[leftmost]);
 
-  #pragma omp parallel 
+#pragma omp parallel
   {
     size_t local_leftmost = 0;
     double local_leftmost_x = std::get<0>(input[local_leftmost]);
     double local_leftmost_y = std::get<1>(input[local_leftmost]);
 
-    #pragma omp for nowait
+#pragma omp for nowait
     for (size_t i = 0; i < input.size(); ++i) {
       double x = std::get<0>(input[i]);
       double y = std::get<1>(input[i]);
@@ -47,7 +48,7 @@ size_t KutuzovITestConvexHullOMP::FindLeftmostPoint(const InType &input) {
       }
     }
 
-    #pragma omp critical 
+#pragma omp critical
     {
       if ((local_leftmost_x < leftmost_x) || ((local_leftmost_x == leftmost_x) && (local_leftmost_y < leftmost_y))) {
         leftmost = local_leftmost;
@@ -105,13 +106,13 @@ bool KutuzovITestConvexHullOMP::RunImpl() {
     double next_x = std::get<0>(GetInput()[next]);
     double next_y = std::get<1>(GetInput()[next]);
 
-    #pragma omp parallel
+#pragma omp parallel
     {
       size_t local_next = (current + 1) % GetInput().size();
       double local_next_x = std::get<0>(GetInput()[local_next]);
       double local_next_y = std::get<1>(GetInput()[local_next]);
 
-      #pragma omp for nowait
+#pragma omp for nowait
       for (size_t i = 0; i < GetInput().size(); ++i) {
         if (i == current) {
           continue;
@@ -129,7 +130,7 @@ bool KutuzovITestConvexHullOMP::RunImpl() {
         }
       }
 
-      #pragma omp critical
+#pragma omp critical
       {
         double cross = CrossProduct(current_x, current_y, next_x, next_y, local_next_x, local_next_y);
 
@@ -139,7 +140,7 @@ bool KutuzovITestConvexHullOMP::RunImpl() {
           next_y = local_next_y;
         }
       }
-    } 
+    }
 
     current = next;
     current_x = next_x;
