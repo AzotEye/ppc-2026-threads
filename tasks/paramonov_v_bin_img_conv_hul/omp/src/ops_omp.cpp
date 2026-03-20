@@ -101,17 +101,8 @@ void ConvexHullOMP::FloodFill(int start_row, int start_col, std::vector<bool> &v
   }
 }
 
-void ConvexHullOMP::ExtractConnectedComponents() {
-  const int rows = working_image_.rows;
-  const int cols = working_image_.cols;
-  const size_t total_pixels = static_cast<size_t>(rows) * static_cast<size_t>(cols);
-
-  std::vector<bool> visited(total_pixels, false);
-  std::vector<std::vector<PixelPoint>> components;
-  std::vector<std::pair<int, int>> start_points;
-
-  auto &pixels = working_image_.pixels;
-
+void ConvexHullOMP::FindStartPoints(const std::vector<uint8_t> &pixels, int rows, int cols, std::vector<bool> &visited,
+                                    std::vector<std::pair<int, int>> &start_points) {
 #pragma omp parallel for default(none) shared(rows, cols, pixels, visited, start_points)
   for (int row = 0; row < rows; ++row) {
     for (int col = 0; col < cols; ++col) {
@@ -127,48 +118,66 @@ void ConvexHullOMP::ExtractConnectedComponents() {
       }
     }
   }
+}
 
-#pragma omp parallel for default(none) shared(start_points, total_pixels, rows, cols, pixels, components, kNeighbors)
-  for (int64_t i = 0; i < static_cast<int64_t>(start_points.size()); ++i) {
-    int start_row = start_points[static_cast<size_t>(i)].first;
-    int start_col = start_points[static_cast<size_t>(i)].second;
+void ConvexHullOMP::ProcessComponent(int start_row, int start_col, int rows, int cols, size_t total_pixels,
+                                     const std::vector<uint8_t> &pixels,
+                                     std::vector<std::vector<PixelPoint>> &components) {
+  std::vector<bool> local_visited(total_pixels, false);
+  std::vector<PixelPoint> component;
 
-    std::vector<bool> local_visited(total_pixels, false);
-    std::vector<PixelPoint> component;
+  std::stack<PixelPoint> pixel_stack;
+  pixel_stack.emplace(start_row, start_col);
+  local_visited[(static_cast<size_t>(start_row) * static_cast<size_t>(cols)) + static_cast<size_t>(start_col)] = true;
 
-    std::stack<PixelPoint> pixel_stack;
-    pixel_stack.emplace(start_row, start_col);
-    local_visited[(static_cast<size_t>(start_row) * static_cast<size_t>(cols)) + static_cast<size_t>(start_col)] = true;
+  while (!pixel_stack.empty()) {
+    PixelPoint current = pixel_stack.top();
+    pixel_stack.pop();
+    component.push_back(current);
 
-    while (!pixel_stack.empty()) {
-      PixelPoint current = pixel_stack.top();
-      pixel_stack.pop();
-      component.push_back(current);
+    for (const auto &neighbor : kNeighbors) {
+      int dr = neighbor.first;
+      int dc = neighbor.second;
+      int next_row = current.row + dr;
+      int next_col = current.col + dc;
 
-      for (const auto &neighbor : kNeighbors) {
-        int dr = neighbor.first;
-        int dc = neighbor.second;
-        int next_row = current.row + dr;
-        int next_col = current.col + dc;
-
-        if (next_row >= 0 && next_row < rows && next_col >= 0 && next_col < cols) {
-          size_t idx = (static_cast<size_t>(next_row) * static_cast<size_t>(cols)) + static_cast<size_t>(next_col);
-          if (!local_visited[idx] && pixels[idx] == 255) {
-            local_visited[idx] = true;
-            pixel_stack.emplace(next_row, next_col);
-          }
+      if (next_row >= 0 && next_row < rows && next_col >= 0 && next_col < cols) {
+        size_t idx = (static_cast<size_t>(next_row) * static_cast<size_t>(cols)) + static_cast<size_t>(next_col);
+        if (!local_visited[idx] && pixels[idx] == 255) {
+          local_visited[idx] = true;
+          pixel_stack.emplace(next_row, next_col);
         }
       }
     }
+  }
 
-    if (!component.empty()) {
-      std::vector<PixelPoint> hull = ComputeConvexHull(component);
-
+  if (!component.empty()) {
+    std::vector<PixelPoint> hull = ComputeConvexHull(component);
 #pragma omp critical
-      {
-        components.push_back(std::move(hull));
-      }
+    {
+      components.push_back(std::move(hull));
     }
+  }
+}
+
+void ConvexHullOMP::ExtractConnectedComponents() {
+  const int rows = working_image_.rows;
+  const int cols = working_image_.cols;
+  const size_t total_pixels = static_cast<size_t>(rows) * static_cast<size_t>(cols);
+
+  std::vector<bool> visited(total_pixels, false);
+  std::vector<std::vector<PixelPoint>> components;
+  std::vector<std::pair<int, int>> start_points;
+
+  auto &pixels = working_image_.pixels;
+
+  FindStartPoints(pixels, rows, cols, visited, start_points);
+
+#pragma omp parallel for default(none) shared(start_points, total_pixels, rows, cols, pixels, components)
+  for (size_t i = 0; i < start_points.size(); ++i) {
+    int start_row = start_points[i].first;
+    int start_col = start_points[i].second;
+    ProcessComponent(start_row, start_col, rows, cols, total_pixels, pixels, components);
   }
 
   GetOutput() = std::move(components);
