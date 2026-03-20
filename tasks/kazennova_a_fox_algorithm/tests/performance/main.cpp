@@ -5,8 +5,8 @@
 #include <vector>
 
 #include "kazennova_a_fox_algorithm/common/include/common.hpp"
-#include "kazennova_a_fox_algorithm/seq/include/ops_seq.hpp"
 #include "kazennova_a_fox_algorithm/omp/include/ops_omp.hpp"
+#include "kazennova_a_fox_algorithm/seq/include/ops_seq.hpp"
 #include "util/include/perf_test_util.hpp"
 
 namespace kazennova_a_fox_algorithm {

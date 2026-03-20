@@ -20,13 +20,13 @@ class KazennovaATestTaskOMP : public BaseTask {
   bool RunImpl() override;
   bool PostProcessingImpl() override;
 
-  void DecomposeMatrix(const std::vector<double>& src,
-                       std::vector<double>& dst,
-                       int n, int bs, int q);
-  void AssembleMatrix(const std::vector<double>& src,
-                      std::vector<double>& dst,
-                      int n, int bs, int q);
-  void MultiplyBlock(int a_idx, int b_idx, int c_idx, int bs);
+  static void DecomposeMatrix(const std::vector<double>& src,
+                              std::vector<double>& dst,
+                              int n, int bs, int q);
+  static void AssembleMatrix(const std::vector<double>& src,
+                             std::vector<double>& dst,
+                             int n, int bs, int q);
+  void MultiplyBlock(size_t a_idx, size_t b_idx, size_t c_idx, int bs);
 
   int matrix_size_{0};
   int block_size_{0};
