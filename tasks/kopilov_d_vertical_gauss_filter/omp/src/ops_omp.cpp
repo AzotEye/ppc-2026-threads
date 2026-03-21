@@ -73,7 +73,7 @@ bool KopilovDVerticalGaussFilterOMP::RunImpl() {
       int pixel_sum = 0;
       for (int kernel_y = -1; kernel_y <= 1; ++kernel_y) {
         for (int kernel_x = -1; kernel_x <= 1; ++kernel_x) {
-          pixel_sum += kGaussKernel[kernel_y + 1][kernel_x + 1] *
+          pixel_sum += kGaussKernel.at(kernel_y + 1).at(kernel_x + 1) *
                        GetPixelMirroredOmp(source_image, i + kernel_x, j + kernel_y, width, height);
         }
       }
