@@ -36,7 +36,7 @@ void MoskaevVLinFiltBlockGauss3OMP::ApplyGaussianFilterToBlock(const std::vector
   int inner_height = block_height - 2;
 
 #pragma omp parallel for collapse(3) schedule(static) default(none) \
-    shared(input_block, output_block, inner_width, inner_height, channels, block_width)
+    shared(input_block, output_block, inner_width, inner_height, channels, block_width, kGaussianKernel)
   for (int row = 0; row < inner_height; ++row) {
     for (int col = 0; col < inner_width; ++col) {
       for (int channel = 0; channel < channels; ++channel) {
