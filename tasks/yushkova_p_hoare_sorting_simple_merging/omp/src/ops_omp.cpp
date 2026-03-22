@@ -12,13 +12,13 @@
 
 namespace yushkova_p_hoare_sorting_simple_merging {
 
-YushkovaPHoareSortingSimpleMergingOMP::YushkovaPHoareSortingSimpleMergingOMP(const InType& in) {
+YushkovaPHoareSortingSimpleMergingOMP::YushkovaPHoareSortingSimpleMergingOMP(const InType &in) {
   SetTypeOfTask(GetStaticTypeOfTask());
   GetInput() = in;
   GetOutput().clear();
 }
 
-int YushkovaPHoareSortingSimpleMergingOMP::HoarePartition(std::vector<int>& values, int left, int right) {
+int YushkovaPHoareSortingSimpleMergingOMP::HoarePartition(std::vector<int> &values, int left, int right) {
   const int pivot = values[left + ((right - left) / 2)];
   int i = left - 1;
   int j = right + 1;
@@ -42,7 +42,7 @@ int YushkovaPHoareSortingSimpleMergingOMP::HoarePartition(std::vector<int>& valu
   }
 }
 
-void YushkovaPHoareSortingSimpleMergingOMP::HoareQuickSort(std::vector<int>& values, int left, int right) {
+void YushkovaPHoareSortingSimpleMergingOMP::HoareQuickSort(std::vector<int> &values, int left, int right) {
   std::stack<std::pair<int, int>> ranges;
   ranges.emplace(left, right);
 
@@ -66,7 +66,7 @@ void YushkovaPHoareSortingSimpleMergingOMP::HoareQuickSort(std::vector<int>& val
   }
 }
 
-void YushkovaPHoareSortingSimpleMergingOMP::Merge(std::vector<int>& values, int left, int mid, int right) {
+void YushkovaPHoareSortingSimpleMergingOMP::Merge(std::vector<int> &values, int left, int mid, int right) {
   std::vector<int> merged;
   const int merged_size = (right - left) + 1;
   merged.reserve(static_cast<std::size_t>(merged_size));
@@ -105,7 +105,7 @@ bool YushkovaPHoareSortingSimpleMergingOMP::PreProcessingImpl() {
 }
 
 bool YushkovaPHoareSortingSimpleMergingOMP::RunImpl() {
-  std::vector<int>& values = GetOutput();
+  std::vector<int> &values = GetOutput();
   const int n = static_cast<int>(values.size());
   if (n <= 1) {
     return true;

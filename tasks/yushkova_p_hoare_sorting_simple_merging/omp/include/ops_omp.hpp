@@ -12,12 +12,12 @@ class YushkovaPHoareSortingSimpleMergingOMP : public BaseTask {
   static constexpr ppc::task::TypeOfTask GetStaticTypeOfTask() {
     return ppc::task::TypeOfTask::kOMP;
   }
-  explicit YushkovaPHoareSortingSimpleMergingOMP(const InType& in);
+  explicit YushkovaPHoareSortingSimpleMergingOMP(const InType &in);
 
  private:
-  static int HoarePartition(std::vector<int>& values, int left, int right);
-  static void HoareQuickSort(std::vector<int>& values, int left, int right);
-  static void Merge(std::vector<int>& values, int left, int mid, int right);
+  static int HoarePartition(std::vector<int> &values, int left, int right);
+  static void HoareQuickSort(std::vector<int> &values, int left, int right);
+  static void Merge(std::vector<int> &values, int left, int mid, int right);
 
   bool ValidationImpl() override;
   bool PreProcessingImpl() override;
