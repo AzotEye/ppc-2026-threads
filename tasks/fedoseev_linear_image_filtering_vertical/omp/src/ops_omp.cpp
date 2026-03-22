@@ -52,26 +52,26 @@ bool LinearImageFilteringVerticalOMP::RunImpl() {
   auto get_pixel = [&](int col, int row) -> int {
     col = std::clamp(col, 0, w - 1);
     row = std::clamp(row, 0, h - 1);
-    return src[static_cast<size_t>(row) * static_cast<size_t>(w) + static_cast<size_t>(col)];
+    return src[(static_cast<size_t>(row) * static_cast<size_t>(w)) + static_cast<size_t>(col)];
   };
 
   const int block_width = 64;
 
-#pragma omp parallel for schedule(static) shared(w, h, src, dst, kernel, kernel_sum, get_pixel) default(none)
+#pragma omp parallel for schedule(static) shared(w, h, src, dst, kernel, kernel_sum)
   for (int col_start = 0; col_start < w; col_start += block_width) {
     int col_end = std::min(col_start + block_width, w);
     for (int row = 0; row < h; ++row) {
       for (int col = col_start; col < col_end; ++col) {
         int sum = 0;
-        for (int ky = -1; ky <= 1; ++ky) {
-          for (int kx = -1; kx <= 1; ++kx) {
-            int px = col + kx;
-            int py = row + ky;
+        for (int ky = 0; ky < 3; ++ky) {
+          for (int kx = 0; kx < 3; ++kx) {
+            int px = col + kx - 1;
+            int py = row + ky - 1;
             int pixel = get_pixel(px, py);
-            sum += pixel * kernel[ky + 1][kx + 1];
+            sum += pixel * kernel[ky][kx];
           }
         }
-        dst[static_cast<size_t>(row) * static_cast<size_t>(w) + static_cast<size_t>(col)] = sum / kernel_sum;
+        dst[(static_cast<size_t>(row) * static_cast<size_t>(w)) + static_cast<size_t>(col)] = sum / kernel_sum;
       }
     }
   }
