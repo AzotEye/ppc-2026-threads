@@ -24,7 +24,6 @@ void CountingSortStep(std::vector<int>::iterator in_begin, std::vector<int>::ite
     auto raw_val = static_cast<unsigned int>(*it);
     unsigned int byte_val = (raw_val >> shift) & 0xFF;
 
-    // Инвертируем знаковый бит для старшего байта
     if (byte_index == sizeof(int) - 1) {
       byte_val ^= 128;
     }
