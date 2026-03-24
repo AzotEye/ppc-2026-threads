@@ -12,7 +12,7 @@
 #include <vector>
 
 #include "lobanov_d_multi_matrix_crs/common/include/common.hpp"
-#include "lobanov_d_multi_matrix_crs/seq/include/ops_omp.hpp"
+#include "lobanov_d_multi_matrix_crs/omp/include/ops_omp.hpp"
 
 namespace lobanov_d_multi_matrix_crs {
 namespace {
