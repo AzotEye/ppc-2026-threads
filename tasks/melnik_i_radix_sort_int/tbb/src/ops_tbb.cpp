@@ -63,7 +63,7 @@ bool MelnikIRadixSortIntTBB::RunImpl() {
   const std::size_t data_size = GetOutput().size();
   const int requested_threads = std::max(1, ppc::util::GetNumThreads());
   const int max_ranges_by_size = std::max<int>(1, static_cast<int>((data_size + kMinChunkSize - 1U) / kMinChunkSize));
-  const int num_ranges = std::min(requested_threads, std::min<int>(static_cast<int>(data_size), max_ranges_by_size));
+  const int num_ranges = std::min({requested_threads, static_cast<int>(data_size), max_ranges_by_size});
 
   std::vector<int> buffer(data_size);
   auto &output = GetOutput();
