@@ -5,6 +5,7 @@
 #include <string>
 #include <tuple>
 
+#include "kamaletdinov_r_bitwise_int/all/include/ops_all.hpp"
 #include "kamaletdinov_r_bitwise_int/common/include/common.hpp"
 #include "kamaletdinov_r_bitwise_int/omp/include/ops_omp.hpp"
 #include "kamaletdinov_r_bitwise_int/seq/include/ops_seq.hpp"
@@ -52,6 +53,7 @@ const std::array<TestType, 10> kTestParam = {std::make_tuple(0, "empty"),      s
                                              std::make_tuple(256, "pow2_256"), std::make_tuple(1000, "thousand")};
 
 const auto kTestTasksList = std::tuple_cat(
+    ppc::util::AddFuncTask<KamaletdinovRBitwiseIntALL, InType>(kTestParam, PPC_SETTINGS_kamaletdinov_r_bitwise_int),
     ppc::util::AddFuncTask<KamaletdinovRBitwiseIntOMP, InType>(kTestParam, PPC_SETTINGS_kamaletdinov_r_bitwise_int),
     ppc::util::AddFuncTask<KamaletdinovRBitwiseIntSEQ, InType>(kTestParam, PPC_SETTINGS_kamaletdinov_r_bitwise_int),
     ppc::util::AddFuncTask<KamaletdinovRBitwiseIntSTL, InType>(kTestParam, PPC_SETTINGS_kamaletdinov_r_bitwise_int),
