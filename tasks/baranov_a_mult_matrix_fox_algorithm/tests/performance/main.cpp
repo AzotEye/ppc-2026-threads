@@ -10,9 +10,10 @@
 #include "baranov_a_mult_matrix_fox_algorithm/seq/include/ops_seq.hpp"
 #include "util/include/perf_test_util.hpp"
 
-namespace baranov_a_mult_matrix_fox_algorithm_omp {
+namespace baranov_a_mult_matrix_fox_algorithm_test {
 
-class BaranovAMultMatrixFoxAlgorithmOMPPerfTests
+template<typename TaskType>
+class BaranovAMultMatrixFoxAlgorithmPerfTests
     : public ppc::util::BaseRunPerfTests<baranov_a_mult_matrix_fox_algorithm::InType,
                                          baranov_a_mult_matrix_fox_algorithm::OutType> {
   void SetUp() override {
@@ -51,22 +52,38 @@ class BaranovAMultMatrixFoxAlgorithmOMPPerfTests
   baranov_a_mult_matrix_fox_algorithm::OutType expected_output_;
 };
 
-TEST_P(BaranovAMultMatrixFoxAlgorithmOMPPerfTests, RunPerfModes) {
+using BaranovASEQPerfTests = BaranovAMultMatrixFoxAlgorithmPerfTests<baranov_a_mult_matrix_fox_algorithm_seq::BaranovAMultMatrixFoxAlgorithmSEQ>;
+using BaranovAOMPPerfTests = BaranovAMultMatrixFoxAlgorithmPerfTests<baranov_a_mult_matrix_fox_algorithm_omp::BaranovAMultMatrixFoxAlgorithmOMP>;
+
+TEST_P(BaranovASEQPerfTests, RunPerfModes) {
+  ExecuteTest(GetParam());
+}
+
+TEST_P(BaranovAOMPPerfTests, RunPerfModes) {
   ExecuteTest(GetParam());
 }
 
 namespace {
 
-const auto kAllPerfTasksOmp =
-    ppc::util::MakeAllPerfTasks<baranov_a_mult_matrix_fox_algorithm::InType, BaranovAMultMatrixFoxAlgorithmOMP>(
+const auto kAllPerfTasksSeq =
+    ppc::util::MakeAllPerfTasks<baranov_a_mult_matrix_fox_algorithm::InType, 
+                                baranov_a_mult_matrix_fox_algorithm_seq::BaranovAMultMatrixFoxAlgorithmSEQ>(
         PPC_SETTINGS_baranov_a_mult_matrix_fox_algorithm);
 
+const auto kAllPerfTasksOmp =
+    ppc::util::MakeAllPerfTasks<baranov_a_mult_matrix_fox_algorithm::InType, 
+                                baranov_a_mult_matrix_fox_algorithm_omp::BaranovAMultMatrixFoxAlgorithmOMP>(
+        PPC_SETTINGS_baranov_a_mult_matrix_fox_algorithm);
+
+const auto kGtestValuesSeq = ppc::util::TupleToGTestValues(kAllPerfTasksSeq);
 const auto kGtestValuesOmp = ppc::util::TupleToGTestValues(kAllPerfTasksOmp);
 
-const auto kPerfTestName = BaranovAMultMatrixFoxAlgorithmOMPPerfTests::CustomPerfTestName;
+const auto kPerfTestNameSeq = BaranovASEQPerfTests::CustomPerfTestName;
+const auto kPerfTestNameOmp = BaranovAOMPPerfTests::CustomPerfTestName;
 
-INSTANTIATE_TEST_SUITE_P(PerfTestsOmp, BaranovAMultMatrixFoxAlgorithmOMPPerfTests, kGtestValuesOmp, kPerfTestName);
+INSTANTIATE_TEST_SUITE_P(PerfTestsSeq, BaranovASEQPerfTests, kGtestValuesSeq, kPerfTestNameSeq);
+INSTANTIATE_TEST_SUITE_P(PerfTestsOmp, BaranovAOMPPerfTests, kGtestValuesOmp, kPerfTestNameOmp);
 
 }  // namespace
 
-}  // namespace baranov_a_mult_matrix_fox_algorithm_omp
+}  // namespace baranov_a_mult_matrix_fox_algorithm_test
