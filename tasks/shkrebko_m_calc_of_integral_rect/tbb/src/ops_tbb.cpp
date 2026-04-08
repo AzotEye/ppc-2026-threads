@@ -62,12 +62,10 @@ bool ShkrebkoMCalcOfIntegralRectTBB::RunImpl() {
   int num_threads = ppc::util::GetNumThreads();
   tbb::global_control global_limit(tbb::global_control::max_allowed_parallelism, num_threads);
 
-  double total_sum = tbb::parallel_reduce(
-      tbb::blocked_range<std::size_t>(0, total_points), 0.0,
-      [&](const tbb::blocked_range<std::size_t> &range, double partial_sum) {
-        return partial_sum + ComputeBlockSum(range.begin(), range.end(), h);
-      },
-      std::plus<>());
+  double total_sum = tbb::parallel_reduce(tbb::blocked_range<std::size_t>(0, total_points), 0.0,
+                                          [&](const tbb::blocked_range<std::size_t> &range, double partial_sum) {
+    return partial_sum + ComputeBlockSum(range.begin(), range.end(), h);
+  }, std::plus<>());
 
   res_ = total_sum * cell_volume;
   return true;

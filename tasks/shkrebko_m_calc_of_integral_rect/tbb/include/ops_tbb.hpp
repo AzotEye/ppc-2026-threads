@@ -23,7 +23,7 @@ class ShkrebkoMCalcOfIntegralRectTBB : public BaseTask {
   bool PostProcessingImpl() override;
 
  private:
-  double ComputeBlockSum(std::size_t start_idx, std::size_t end_idx, const std::vector<double>& h);
+  double ComputeBlockSum(std::size_t start_idx, std::size_t end_idx, const std::vector<double> &h);
 
   InType local_input_;
   double res_ = 0.0;
