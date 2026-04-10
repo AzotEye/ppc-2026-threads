@@ -298,6 +298,7 @@ bool MarinLMarkComponentsTBB::PostProcessingImpl() {
   });
 
   GetOutput().labels = std::move(labels_out_);
+  
   return true;
 }
 
