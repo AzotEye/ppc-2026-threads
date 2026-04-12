@@ -31,9 +31,9 @@ class TabalaevAMatrixMulStrassenTBB : public BaseTask {
   static std::vector<double> StrassenMultiply(const std::vector<double> &mat_a, const std::vector<double> &mat_b,
                                               size_t n);
 
-  static void Add(const std::vector<double> &mat_a, const std::vector<double> &mat_b, std::vector<double> &out);
+  static void Add(const std::vector<double> &mat_a, const std::vector<double> &mat_b, std::vector<double> &res);
 
-  static void Subtract(const std::vector<double> &mat_a, const std::vector<double> &mat_b, std::vector<double> &out);
+  static void Subtract(const std::vector<double> &mat_a, const std::vector<double> &mat_b, std::vector<double> &res);
 
   static std::vector<double> BaseMultiply(const std::vector<double> &mat_a, const std::vector<double> &mat_b, size_t n);
 

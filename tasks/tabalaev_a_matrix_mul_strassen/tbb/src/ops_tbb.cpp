@@ -5,7 +5,6 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
-#include <stack>
 #include <utility>
 #include <vector>
 
@@ -48,13 +47,13 @@ bool TabalaevAMatrixMulStrassenTBB::PreProcessingImpl() {
 
   const size_t n = padded_n_;
 
-  tbb::parallel_for(size_t(0), a_rows_, [this, n, &in](size_t i) {
+  tbb::parallel_for(static_cast<size_t>(0), a_rows_, [this, n, &in](size_t i) {
     for (size_t j = 0; j < a_cols_b_rows_; ++j) {
       padded_a_[(i * n) + j] = in.a[(i * a_cols_b_rows_) + j];
     }
   });
 
-  tbb::parallel_for(size_t(0), a_cols_b_rows_, [this, n, &in](size_t i) {
+  tbb::parallel_for(static_cast<size_t>(0), a_cols_b_rows_, [this, n, &in](size_t i) {
     for (size_t j = 0; j < b_cols_; ++j) {
       padded_b_[(i * n) + j] = in.b[(i * b_cols_) + j];
     }
@@ -71,7 +70,7 @@ bool TabalaevAMatrixMulStrassenTBB::RunImpl() {
 
   const size_t n = padded_n_;
 
-  tbb::parallel_for(size_t(0), a_rows_, [this, n, &out](size_t i) {
+  tbb::parallel_for(static_cast<size_t>(0), a_rows_, [this, n, &out](size_t i) {
     for (size_t j = 0; j < b_cols_; ++j) {
       out[(i * b_cols_) + j] = result_c_[(i * n) + j];
     }
@@ -90,7 +89,7 @@ void TabalaevAMatrixMulStrassenTBB::Add(const std::vector<double> &mat_a, const 
   res.resize(n);
 
   if (n >= kParallelThreshold) {
-    tbb::parallel_for(size_t(0), n, [&](size_t i) { res[i] = mat_a[i] + mat_b[i]; });
+    tbb::parallel_for(static_cast<size_t>(0), n, [&](size_t i) { res[i] = mat_a[i] + mat_b[i]; });
   } else {
     for (size_t i = 0; i < n; ++i) {
       res[i] = mat_a[i] + mat_b[i];
@@ -104,7 +103,7 @@ void TabalaevAMatrixMulStrassenTBB::Subtract(const std::vector<double> &mat_a, c
   res.resize(n);
 
   if (n >= kParallelThreshold) {
-    tbb::parallel_for(size_t(0), n, [&](size_t i) { res[i] = mat_a[i] - mat_b[i]; });
+    tbb::parallel_for(static_cast<size_t>(0), n, [&](size_t i) { res[i] = mat_a[i] - mat_b[i]; });
   } else {
     for (size_t i = 0; i < n; ++i) {
       res[i] = mat_a[i] - mat_b[i];
@@ -116,7 +115,7 @@ std::vector<double> TabalaevAMatrixMulStrassenTBB::BaseMultiply(const std::vecto
                                                                 const std::vector<double> &mat_b, size_t n) {
   std::vector<double> res(n * n, 0.0);
 
-  tbb::parallel_for(size_t(0), n, [&](size_t i) {
+  tbb::parallel_for(static_cast<size_t>(0), n, [&](size_t i) {
     for (size_t k = 0; k < n; ++k) {
       double temp = mat_a[(i * n) + k];
       if (temp == 0.0) {
@@ -143,7 +142,7 @@ void TabalaevAMatrixMulStrassenTBB::SplitMatrix(const std::vector<double> &src, 
   c22.resize(sz);
 
   if (n * n >= kParallelThreshold) {
-    tbb::parallel_for(size_t(0), h, [&](size_t i) {
+    tbb::parallel_for(static_cast<size_t>(0), h, [&](size_t i) {
       for (size_t j = 0; j < h; ++j) {
         size_t src_idx = (i * n) + j;
         size_t dst_idx = (i * h) + j;
@@ -178,7 +177,7 @@ std::vector<double> TabalaevAMatrixMulStrassenTBB::CombineMatrix(const std::vect
   std::vector<double> res(n * n);
 
   if (n * n >= kParallelThreshold) {
-    tbb::parallel_for(size_t(0), h, [&](size_t i) {
+    tbb::parallel_for(static_cast<size_t>(0), h, [&](size_t i) {
       for (size_t j = 0; j < h; ++j) {
         size_t src_idx = (i * h) + j;
 
@@ -242,7 +241,7 @@ std::vector<double> TabalaevAMatrixMulStrassenTBB::StrassenMultiply(const std::v
       std::vector<double> c21(sz);
       std::vector<double> c22(sz);
 
-      tbb::parallel_for(size_t(0), sz, [&](size_t i) {
+      tbb::parallel_for(static_cast<size_t>(0), sz, [&](size_t i) {
         c11[i] = p[0][i] + p[3][i] - p[4][i] + p[6][i];
         c12[i] = p[2][i] + p[4][i];
         c21[i] = p[1][i] + p[3][i];
@@ -253,8 +252,14 @@ std::vector<double> TabalaevAMatrixMulStrassenTBB::StrassenMultiply(const std::v
     } else {
       size_t h = current.n / 2;
 
-      std::vector<double> a11, a12, a21, a22;
-      std::vector<double> b11, b12, b21, b22;
+      std::vector<double> a11;
+      std::vector<double> a12;
+      std::vector<double> a21;
+      std::vector<double> a22;
+      std::vector<double> b11;
+      std::vector<double> b12;
+      std::vector<double> b21;
+      std::vector<double> b22;
 
       SplitMatrix(current.mat_a, current.n, a11, a12, a21, a22);
       SplitMatrix(current.mat_b, current.n, b11, b12, b21, b22);
