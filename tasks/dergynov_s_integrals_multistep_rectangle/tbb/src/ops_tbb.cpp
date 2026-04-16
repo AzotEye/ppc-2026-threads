@@ -72,31 +72,26 @@ bool DergynovSIntegralsMultistepRectangleTBB::RunImpl() {
     total_points *= n;
   }
 
-  double total_sum = tbb::parallel_reduce(
-      tbb::blocked_range<size_t>(0, total_points),
-      0.0,
-      [&](const tbb::blocked_range<size_t> &range, double local_sum) {
-        for (size_t linear_idx = range.begin(); linear_idx != range.end(); ++linear_idx) {
-          size_t tmp = linear_idx;
-          std::vector<double> point(dim);
+  double total_sum = tbb::parallel_reduce(tbb::blocked_range<size_t>(0, total_points), 0.0,
+                                          [&](const tbb::blocked_range<size_t> &range, double local_sum) {
+    for (size_t linear_idx = range.begin(); linear_idx != range.end(); ++linear_idx) {
+      size_t tmp = linear_idx;
+      std::vector<double> point(dim);
 
-          for (int dimension = dim - 1; dimension >= 0; --dimension) {
-            int idx_val = static_cast<int>(tmp % static_cast<size_t>(n));
-            tmp /= static_cast<size_t>(n);
-            point[dimension] = borders[dimension].first + 
-                              ((static_cast<double>(idx_val) + 0.5) * h[dimension]);
-          }
+      for (int dimension = dim - 1; dimension >= 0; --dimension) {
+        int idx_val = static_cast<int>(tmp % static_cast<size_t>(n));
+        tmp /= static_cast<size_t>(n);
+        point[dimension] = borders[dimension].first + ((static_cast<double>(idx_val) + 0.5) * h[dimension]);
+      }
 
-          double f_val = func(point);
-          if (!std::isfinite(f_val)) {
-            return local_sum;
-          }
-          local_sum += f_val;
-        }
+      double f_val = func(point);
+      if (!std::isfinite(f_val)) {
         return local_sum;
-      },
-      [](double a, double b) { return a + b; }
-  );
+      }
+      local_sum += f_val;
+    }
+    return local_sum;
+  }, [](double a, double b) { return a + b; });
 
   GetOutput() = total_sum * cell_volume;
   return std::isfinite(GetOutput());
