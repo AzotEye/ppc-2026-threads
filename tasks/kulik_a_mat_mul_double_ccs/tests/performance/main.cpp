@@ -19,41 +19,40 @@ class KulikARunPerfTestThreads : public ppc::util::BaseRunPerfTests<InType, OutT
   InType input_data_;
 
   void SetUp() override {
-    int dim = 20000;
-    int seed = 0;
+    size_t size = 20000;
     CCS &a = std::get<0>(input_data_);
     CCS &b = std::get<1>(input_data_);
-
-    std::mt19937 rng(seed);
-    std::uniform_real_distribution<double> val_gen(1.0, 2.0);
-
-    a.m = dim;
-    a.n = dim;
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_real_distribution<double> dist_val(-10.0, 10.0);
+    a.m = size;
+    a.n = size;
+    b.m = size;
+    b.n = size;
     a.col_ind.assign(a.n + 1, 0);
+    b.col_ind.assign(b.n + 1, 0);
     for (size_t j = 0; j < a.n; ++j) {
-      int left = std::max(static_cast<int>(j - 50), 0);
-      int right = static_cast<int>(std::min(a.n, j + 50));
+      size_t left = (j > 50) ? (j - 50) : 0;      
+      size_t right = std::min(a.n, j + 50);
       a.col_ind[j + 1] = a.col_ind[j] + right - left;
-      for (int k = left; k < right; ++k) {
-        double r = val_gen(rng);
+      for (size_t k = left; k < right; ++k) {
+        double r = dist_val(gen);
         a.row.push_back(k);
         a.value.push_back(r);
       }
     }
-
-    b.m = dim;
-    b.n = dim;
-    b.col_ind.assign(b.n + 1, 0);
+    a.nz = a.row.size();
     for (size_t j = 0; j < b.n; ++j) {
-      int left = std::max(static_cast<int>(j - 50), 0);
-      int right = static_cast<int>(std::min(b.n, j + 50));
+      size_t left = (j > 50) ? (j - 50) : 0;
+      size_t right = std::min(b.n, j + 50);
       b.col_ind[j + 1] = b.col_ind[j] + right - left;
-      for (int k = left; k < right; ++k) {
-        double r = val_gen(rng);
+      for (size_t k = left; k < right; ++k) {
+        double r = dist_val(gen);
         b.row.push_back(k);
         b.value.push_back(r);
       }
     }
+    b.nz = b.row.size();
 
     input_data_ = std::make_tuple(a, b);
   }
