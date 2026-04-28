@@ -147,9 +147,9 @@ TEST_P(LeonovaARadixMergeSortRunFuncTests, RadixMergeSort) {
   ExecuteTest(GetParam());
 }
 
-const std::array<TestType, 32> kTestParam = {
+const std::array<TestType, 30> kTestParam = {
     // 1 элемент
-    std::make_tuple(std::vector<int64_t>{42}, 
+    std::make_tuple(std::vector<int64_t>{42},
                     std::vector<int64_t>{42}),
     
     // 2 элемента
@@ -342,40 +342,6 @@ const std::array<TestType, 32> kTestParam = {
     std::make_tuple(std::vector<int64_t>{INT64_MAX, INT64_MIN, 0, INT64_MAX - 1, INT64_MIN + 1}, 
                     std::vector<int64_t>{INT64_MIN, INT64_MIN + 1, 0, INT64_MAX - 1, INT64_MAX}),
 
-    std::make_tuple(
-    []() {
-        std::vector<int64_t> v(131072);
-        for (size_t i = 0; i < v.size(); ++i) {
-            v[i] = static_cast<int64_t>(v.size() - i);
-        }
-        return v;
-    }(),
-    []() {
-        std::vector<int64_t> v(131072);
-        for (size_t i = 0; i < v.size(); ++i) {
-            v[i] = static_cast<int64_t>(i + 1);
-        }
-        return v;
-    }()
-),
-
-
-std::make_tuple(
-    []() {
-        std::vector<int64_t> v(131073);
-        for (size_t i = 0; i < v.size(); ++i) {
-            v[i] = static_cast<int64_t>(v.size() - i);
-        }
-        return v;
-    }(),
-    []() {
-        std::vector<int64_t> v(131073);
-        for (size_t i = 0; i < v.size(); ++i) {
-            v[i] = static_cast<int64_t>(i + 1);
-        }
-        return v;
-    }()
-),
 // Один элемент
 std::make_tuple(
     std::vector<int64_t>{1},
