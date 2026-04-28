@@ -33,18 +33,21 @@ class LeonovaARadixMergeSortTBB : public BaseTask {
   static uint64_t ToUnsignedValue(int64_t value);
 
   using CounterRow = std::vector<size_t>;
-  using CounterTable = std::vector<CounterRow>;
-
-  static void ResetLocalCounts(CounterTable &local_counts);
-  static void BuildThreadOffsets(const CounterTable &local_counts, size_t thread_count, CounterTable &local_offsets);
 
   static void FillUnsignedKeys(const std::vector<int64_t> &arr, size_t left, size_t size, std::vector<uint64_t> &keys);
 
-  static void CountByteValues(const std::vector<uint64_t> &keys, size_t size, int shift, CounterTable &local_counts);
+  static void CountBytesParallel(const std::vector<uint64_t> &keys, size_t size, int shift,
+                                 tbb::enumerable_thread_specific<CounterRow> &local_counts);
 
-  static void ScatterByte(const std::vector<uint64_t> &keys, const std::vector<int64_t> &arr, size_t left, size_t size,
-                          int shift, CounterTable &local_offsets, std::vector<int64_t> &temp_arr,
-                          std::vector<uint64_t> &temp_keys);
+  static void ReduceCounts(const tbb::enumerable_thread_specific<CounterRow> &local_counts, CounterRow &global_counts);
+
+  static void BuildOffsets(const CounterRow &global_counts,
+                           const tbb::enumerable_thread_specific<CounterRow> &local_counts,
+                           std::vector<CounterRow> &thread_offsets);
+
+  static void ScatterParallel(const std::vector<uint64_t> &keys, const std::vector<int64_t> &arr, size_t left,
+                              size_t size, int shift, std::vector<CounterRow> &thread_offsets,
+                              std::vector<int64_t> &temp_arr, std::vector<uint64_t> &temp_keys);
 
   static constexpr size_t kRadixThreshold = 131072;
   static constexpr size_t kMinParallelSize = 10000;

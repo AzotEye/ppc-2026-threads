@@ -7,7 +7,6 @@
 
 #include "leonova_a_radix_merge_sort/common/include/common.hpp"
 #include "tbb/blocked_range.h"
-#include "tbb/global_control.h"
 #include "tbb/parallel_for.h"
 #include "tbb/task_arena.h"
 #include "util/include/util.hpp"
@@ -24,93 +23,79 @@ inline uint64_t LeonovaARadixMergeSortTBB::ToUnsignedValue(int64_t value) {
   return static_cast<uint64_t>(value) ^ kSignBitMask;
 }
 
-inline void LeonovaARadixMergeSortTBB::ResetLocalCounts(CounterTable &local_counts) {
-  for (auto &counter : local_counts) {
-    std::ranges::fill(counter, 0);
-  }
-}
-
-inline void LeonovaARadixMergeSortTBB::BuildThreadOffsets(const CounterTable &local_counts, size_t thread_count,
-                                                          CounterTable &local_offsets) {
-  std::vector<size_t> bucket_totals(kNumCounters, 0);
-
-  for (size_t thread = 0; thread < thread_count; ++thread) {
-    const auto &row = local_counts[thread];
-    for (size_t i = 0; i < kNumCounters; ++i) {
-      bucket_totals[i] += row[i];
-    }
-  }
-
-  size_t prefix = 0;
-  for (auto &bucket_total : bucket_totals) {
-    const size_t count = bucket_total;
-    bucket_total = prefix;
-    prefix += count;
-  }
-
-  for (size_t thread = 0; thread < thread_count; ++thread) {
-    auto &offset_row = local_offsets[thread];
-    const auto &count_row = local_counts[thread];
-    size_t bucket_index = 0;
-    for (auto &offset : offset_row) {
-      offset = bucket_totals[bucket_index];
-      bucket_totals[bucket_index] += count_row[bucket_index];
-      ++bucket_index;
-    }
-  }
-}
-
 void LeonovaARadixMergeSortTBB::FillUnsignedKeys(const std::vector<int64_t> &arr, size_t left, size_t size,
                                                  std::vector<uint64_t> &keys) {
-  int num_threads = GetTbbArena().max_concurrency();
-  size_t grain_size = std::max(static_cast<size_t>(1), size / (static_cast<size_t>(4 * num_threads)));
-
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, size, grain_size), [&](const tbb::blocked_range<size_t> &range) {
-    for (size_t index = range.begin(); index < range.end(); ++index) {
-      keys[index] = ToUnsignedValue(arr[left + index]);
+  tbb::parallel_for(tbb::blocked_range<size_t>(0, size), [&](const tbb::blocked_range<size_t> &r) {
+    for (size_t i = r.begin(); i < r.end(); ++i) {
+      keys[i] = ToUnsignedValue(arr[left + i]);
     }
   });
 }
 
-void LeonovaARadixMergeSortTBB::CountByteValues(const std::vector<uint64_t> &keys, size_t size, int shift,
-                                                CounterTable &local_counts) {
-  int num_threads = GetTbbArena().max_concurrency();
-  size_t grain_size = std::max(static_cast<size_t>(1), size / (static_cast<size_t>(4 * num_threads)));
+void LeonovaARadixMergeSortTBB::CountBytesParallel(const std::vector<uint64_t> &keys, size_t size, int shift,
+                                                   tbb::enumerable_thread_specific<CounterRow> &local_counts) {
+  tbb::parallel_for(tbb::blocked_range<size_t>(0, size), [&](const tbb::blocked_range<size_t> &r) {
+    auto &counts = local_counts.local();
 
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, size, grain_size), [&](const tbb::blocked_range<size_t> &range) {
-    int thread_idx = tbb::this_task_arena::current_thread_index();
-    if (thread_idx < 0 || static_cast<size_t>(thread_idx) >= local_counts.size()) {
-      thread_idx = 0;
-    }
-
-    auto &row = local_counts[thread_idx];
-
-    for (size_t index = range.begin(); index < range.end(); ++index) {
-      const auto byte_val = static_cast<size_t>((keys[index] >> shift) & 0xFFU);
-      ++row[byte_val];
+    for (size_t i = r.begin(); i < r.end(); ++i) {
+      ++counts[(keys[i] >> shift) & 0xFFU];
     }
   });
 }
 
-void LeonovaARadixMergeSortTBB::ScatterByte(const std::vector<uint64_t> &keys, const std::vector<int64_t> &arr,
-                                            size_t left, size_t size, int shift, CounterTable &local_offsets,
-                                            std::vector<int64_t> &temp_arr, std::vector<uint64_t> &temp_keys) {
-  int num_threads = GetTbbArena().max_concurrency();
-  size_t grain_size = std::max(static_cast<size_t>(1), size / (static_cast<size_t>(4 * num_threads)));
+void LeonovaARadixMergeSortTBB::ReduceCounts(const tbb::enumerable_thread_specific<CounterRow> &local_counts,
+                                             CounterRow &global_counts) {
+  std::ranges::fill(global_counts, 0);
 
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, size, grain_size), [&](const tbb::blocked_range<size_t> &range) {
-    int thread_idx = tbb::this_task_arena::current_thread_index();
-    if (thread_idx < 0 || static_cast<size_t>(thread_idx) >= local_offsets.size()) {
-      thread_idx = 0;
+  for (const auto &row : local_counts) {
+    for (size_t i = 0; i < kNumCounters; ++i) {
+      global_counts[i] += row[i];
     }
+  }
+}
 
-    auto &thread_offsets = local_offsets[thread_idx];
+void LeonovaARadixMergeSortTBB::BuildOffsets(const CounterRow &global_counts,
+                                             const tbb::enumerable_thread_specific<CounterRow> &local_counts,
+                                             std::vector<CounterRow> &thread_offsets) {
+  CounterRow global_offsets(kNumCounters);
+  size_t sum = 0;
 
-    for (size_t index = range.begin(); index < range.end(); ++index) {
-      const auto byte_val = static_cast<size_t>((keys[index] >> shift) & 0xFFU);
-      const size_t pos = thread_offsets[byte_val]++;
-      temp_arr[pos] = arr[left + index];
-      temp_keys[pos] = keys[index];
+  for (size_t i = 0; i < kNumCounters; ++i) {
+    global_offsets[i] = sum;
+    sum += global_counts[i];
+  }
+
+  thread_offsets.clear();
+  thread_offsets.reserve(local_counts.size());
+
+  CounterRow running = global_offsets;
+
+  for (const auto &row : local_counts) {
+    thread_offsets.emplace_back(kNumCounters);
+
+    for (size_t i = 0; i < kNumCounters; ++i) {
+      thread_offsets.back()[i] = running[i];
+      running[i] += row[i];
+    }
+  }
+}
+
+void LeonovaARadixMergeSortTBB::ScatterParallel(const std::vector<uint64_t> &keys, const std::vector<int64_t> &arr,
+                                                size_t left, size_t size, int shift,
+                                                std::vector<CounterRow> &thread_offsets, std::vector<int64_t> &temp_arr,
+                                                std::vector<uint64_t> &temp_keys) {
+  size_t thread_id = 0;
+  tbb::enumerable_thread_specific<size_t> thread_index([&]() { return thread_id++; });
+
+  tbb::parallel_for(tbb::blocked_range<size_t>(0, size), [&](const tbb::blocked_range<size_t> &r) {
+    auto &offsets = thread_offsets[thread_index.local()];
+
+    for (size_t i = r.begin(); i < r.end(); ++i) {
+      size_t byte = (keys[i] >> shift) & 0xFFU;
+      size_t pos = offsets[byte]++;
+
+      temp_arr[pos] = arr[left + i];
+      temp_keys[pos] = keys[i];
     }
   });
 }
@@ -168,18 +153,18 @@ void LeonovaARadixMergeSortTBB::SequentialRadixSort(std::vector<int64_t> &arr, s
     std::vector<size_t> offsets(kNumCounters, 0);
 
     for (size_t i = 0; i < size; ++i) {
-      const auto byte_val = static_cast<size_t>((keys[i] >> shift) & 0xFFU);
+      const size_t byte_val = (keys[i] >> shift) & 0xFFU;
       ++counts[byte_val];
     }
 
-    size_t prefix = 0;
+    size_t sum = 0;
     for (size_t i = 0; i < kNumCounters; ++i) {
-      offsets[i] = prefix;
-      prefix += counts[i];
+      offsets[i] = sum;
+      sum += counts[i];
     }
 
     for (size_t i = 0; i < size; ++i) {
-      const auto byte_val = static_cast<size_t>((keys[i] >> shift) & 0xFFU);
+      const size_t byte_val = (keys[i] >> shift) & 0xFFU;
       const size_t pos = offsets[byte_val]++;
       temp_arr[pos] = arr[left + i];
       temp_keys[pos] = keys[i];
@@ -201,39 +186,29 @@ void LeonovaARadixMergeSortTBB::RadixSort(std::vector<int64_t> &arr, size_t left
     return;
   }
 
-  const int requested_threads = std::max(1, ppc::util::GetNumThreads());
-  const int tbb_threads = std::max(1, std::min(requested_threads, static_cast<int>(size / 1000)));
-  const auto thread_count = static_cast<size_t>(tbb_threads);
+  std::vector<uint64_t> keys(size);
+  std::vector<uint64_t> temp_keys(size);
+  std::vector<int64_t> temp_arr(size);
 
-  static thread_local std::vector<uint64_t> tls_keys;
-  static thread_local std::vector<int64_t> tls_temp_arr;
-  static thread_local std::vector<uint64_t> tls_temp_keys;
-
-  tls_keys.resize(size);
-  tls_temp_arr.resize(size);
-  tls_temp_keys.resize(size);
-
-  auto &keys = tls_keys;
-  auto &temp_arr = tls_temp_arr;
-  auto &temp_keys = tls_temp_keys;
-
-  CounterTable local_counts(thread_count, CounterRow(kNumCounters, 0));
-  CounterTable local_offsets(thread_count, CounterRow(kNumCounters, 0));
+  CounterRow global_counts(kNumCounters);
 
   auto &arena = GetTbbArena();
+
   arena.execute([&] {
     FillUnsignedKeys(arr, left, size, keys);
 
     for (int byte_pos = 0; byte_pos < kNumBytes; ++byte_pos) {
-      const int shift = byte_pos * kByteSize;
+      int shift = byte_pos * kByteSize;
 
-      ResetLocalCounts(local_counts);
+      tbb::enumerable_thread_specific<CounterRow> local_counts(CounterRow(kNumCounters, 0));
 
-      CountByteValues(keys, size, shift, local_counts);
+      CountBytesParallel(keys, size, shift, local_counts);
+      ReduceCounts(local_counts, global_counts);
 
-      BuildThreadOffsets(local_counts, thread_count, local_offsets);
+      std::vector<CounterRow> thread_offsets;
+      BuildOffsets(global_counts, local_counts, thread_offsets);
 
-      ScatterByte(keys, arr, left, size, shift, local_offsets, temp_arr, temp_keys);
+      ScatterParallel(keys, arr, left, size, shift, thread_offsets, temp_arr, temp_keys);
 
       std::ranges::copy(temp_arr, arr.begin() + static_cast<std::ptrdiff_t>(left));
       keys.swap(temp_keys);
