@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <utility>
 #include <vector>
 
 #include "leonova_a_radix_merge_sort/common/include/common.hpp"
@@ -57,6 +58,19 @@ void LeonovaARadixMergeSortTBB::ReduceCounts(const tbb::enumerable_thread_specif
 void LeonovaARadixMergeSortTBB::BuildOffsets(const CounterRow &global_counts,
                                              const tbb::enumerable_thread_specific<CounterRow> &local_counts,
                                              std::vector<CounterRow> &thread_offsets) {
+  // 1. Собираем local_counts в стабильный массив
+  std::vector<CounterRow> counts;
+  counts.reserve(local_counts.size());
+
+  for (const auto &row : local_counts) {
+    counts.push_back(row);
+  }
+
+  const size_t num_threads = counts.size();
+
+  thread_offsets.assign(num_threads, CounterRow(kNumCounters, 0));
+
+  // 2. Глобальные offsets (prefix sum)
   CounterRow global_offsets(kNumCounters);
   size_t sum = 0;
 
@@ -65,17 +79,13 @@ void LeonovaARadixMergeSortTBB::BuildOffsets(const CounterRow &global_counts,
     sum += global_counts[i];
   }
 
-  thread_offsets.clear();
-  thread_offsets.reserve(local_counts.size());
-
+  // 3. Для каждого "потока" считаем смещения
   CounterRow running = global_offsets;
 
-  for (const auto &row : local_counts) {
-    thread_offsets.emplace_back(kNumCounters);
-
-    for (size_t i = 0; i < kNumCounters; ++i) {
-      thread_offsets.back()[i] = running[i];
-      running[i] += row[i];
+  for (size_t tindex = 0; tindex < num_threads; ++tindex) {
+    for (size_t index = 0; index < kNumCounters; ++index) {
+      thread_offsets[tindex][index] = running[index];
+      running[index] += counts[tindex][index];
     }
   }
 }
@@ -84,15 +94,20 @@ void LeonovaARadixMergeSortTBB::ScatterParallel(const std::vector<uint64_t> &key
                                                 size_t left, size_t size, int shift,
                                                 std::vector<CounterRow> &thread_offsets, std::vector<int64_t> &temp_arr,
                                                 std::vector<uint64_t> &temp_keys) {
-  size_t thread_id = 0;
-  tbb::enumerable_thread_specific<size_t> thread_index([&]() { return thread_id++; });
+  const size_t num_threads = thread_offsets.size();
 
   tbb::parallel_for(tbb::blocked_range<size_t>(0, size), [&](const tbb::blocked_range<size_t> &r) {
-    auto &offsets = thread_offsets[thread_index.local()];
+    // ⚠️ стабильный thread id
+    int tid = tbb::this_task_arena::current_thread_index();
+    if (tid < 0 || std::cmp_greater_equal(tid, num_threads)) {
+      tid = 0;  // fallback (редкий, но безопасный)
+    }
+
+    auto &offsets = thread_offsets[tid];
 
     for (size_t i = r.begin(); i < r.end(); ++i) {
-      size_t byte = (keys[i] >> shift) & 0xFFU;
-      size_t pos = offsets[byte]++;
+      const size_t byte = (keys[i] >> shift) & 0xFFU;
+      const size_t pos = offsets[byte]++;
 
       temp_arr[pos] = arr[left + i];
       temp_keys[pos] = keys[i];
@@ -192,6 +207,9 @@ void LeonovaARadixMergeSortTBB::RadixSort(std::vector<int64_t> &arr, size_t left
 
   CounterRow global_counts(kNumCounters);
 
+  tbb::enumerable_thread_specific<CounterRow> local_counts(CounterRow(kNumCounters, 0));
+  std::vector<CounterRow> thread_offsets;
+
   auto &arena = GetTbbArena();
 
   arena.execute([&] {
@@ -200,12 +218,11 @@ void LeonovaARadixMergeSortTBB::RadixSort(std::vector<int64_t> &arr, size_t left
     for (int byte_pos = 0; byte_pos < kNumBytes; ++byte_pos) {
       int shift = byte_pos * kByteSize;
 
-      tbb::enumerable_thread_specific<CounterRow> local_counts(CounterRow(kNumCounters, 0));
+      local_counts.clear();
+      thread_offsets.clear();
 
       CountBytesParallel(keys, size, shift, local_counts);
       ReduceCounts(local_counts, global_counts);
-
-      std::vector<CounterRow> thread_offsets;
       BuildOffsets(global_counts, local_counts, thread_offsets);
 
       ScatterParallel(keys, arr, left, size, shift, thread_offsets, temp_arr, temp_keys);
