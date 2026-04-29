@@ -17,7 +17,6 @@ class LeonovaARadixMergeSortTBB : public BaseTask {
   }
 
   explicit LeonovaARadixMergeSortTBB(const InType &in);
-  ~LeonovaARadixMergeSortTBB() override = default;
 
  private:
   bool ValidationImpl() override;
@@ -32,22 +31,24 @@ class LeonovaARadixMergeSortTBB : public BaseTask {
 
   static uint64_t ToUnsignedValue(int64_t value);
 
+  static std::pair<size_t, size_t> GetChunk(size_t tid, size_t num_threads, size_t size);
+
   using CounterRow = std::vector<size_t>;
 
-  static void FillUnsignedKeys(const std::vector<int64_t> &arr, size_t left, size_t size, std::vector<uint64_t> &keys);
+  static void ScatterParallel(const std::vector<uint64_t> &keys, const std::vector<int64_t> &arr, size_t left,
+                              size_t size, int shift, std::vector<CounterRow> &local_offsets,
+                              std::vector<int64_t> &temp_arr, std::vector<uint64_t> &temp_keys, size_t num_threads);
+
+  static void BuildOffsets(const std::vector<CounterRow> &local_counts, std::vector<CounterRow> &local_offsets,
+                           CounterRow &global_counts, size_t num_threads);
+
+  static void ReduceCounts(const std::vector<CounterRow> &local_counts, CounterRow &global_counts);
 
   static void CountBytesParallel(const std::vector<uint64_t> &keys, size_t size, int shift,
-                                 tbb::enumerable_thread_specific<CounterRow> &local_counts);
+                                 std::vector<CounterRow> &local_counts, size_t num_threads);
 
-  static void ReduceCounts(const tbb::enumerable_thread_specific<CounterRow> &local_counts, CounterRow &global_counts);
-
-  static void BuildOffsets(const CounterRow &global_counts,
-                           const tbb::enumerable_thread_specific<CounterRow> &local_counts,
-                           std::vector<CounterRow> &thread_offsets);
-
-  static void ScatterParallel(const std::vector<uint64_t> &keys, const std::vector<int64_t> &arr, size_t left,
-                              size_t size, int shift, std::vector<CounterRow> &thread_offsets,
-                              std::vector<int64_t> &temp_arr, std::vector<uint64_t> &temp_keys);
+  static void FillUnsignedKeys(const std::vector<int64_t> &arr, size_t left, size_t size, std::vector<uint64_t> &keys,
+                               size_t num_threads);
 
   static constexpr size_t kRadixThreshold = 131072;
   static constexpr size_t kMinParallelSize = 10000;

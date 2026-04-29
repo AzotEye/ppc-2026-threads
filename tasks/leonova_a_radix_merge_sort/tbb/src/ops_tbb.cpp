@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "leonova_a_radix_merge_sort/common/include/common.hpp"
-#include "tbb/blocked_range.h"
 #include "tbb/parallel_for.h"
 #include "tbb/task_arena.h"
 #include "util/include/util.hpp"
@@ -24,93 +23,84 @@ inline uint64_t LeonovaARadixMergeSortTBB::ToUnsignedValue(int64_t value) {
   return static_cast<uint64_t>(value) ^ kSignBitMask;
 }
 
+inline std::pair<size_t, size_t> LeonovaARadixMergeSortTBB::GetChunk(size_t tid, size_t num_threads, size_t size) {
+  const size_t chunk = (size + num_threads - 1) / num_threads;
+  const size_t begin = tid * chunk;
+  const size_t end = std::min(begin + chunk, size);
+  return {begin, end};
+}
+
 void LeonovaARadixMergeSortTBB::FillUnsignedKeys(const std::vector<int64_t> &arr, size_t left, size_t size,
-                                                 std::vector<uint64_t> &keys) {
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, size), [&](const tbb::blocked_range<size_t> &r) {
-    for (size_t i = r.begin(); i < r.end(); ++i) {
-      keys[i] = ToUnsignedValue(arr[left + i]);
+                                                 std::vector<uint64_t> &keys, size_t num_threads) {
+  tbb::parallel_for(static_cast<size_t>(0), num_threads, [&](size_t tid) {
+    auto [begin, end] = GetChunk(tid, num_threads, size);
+    for (size_t index = begin; index < end; ++index) {
+      keys[index] = ToUnsignedValue(arr[left + index]);
     }
   });
 }
 
 void LeonovaARadixMergeSortTBB::CountBytesParallel(const std::vector<uint64_t> &keys, size_t size, int shift,
-                                                   tbb::enumerable_thread_specific<CounterRow> &local_counts) {
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, size), [&](const tbb::blocked_range<size_t> &r) {
-    auto &counts = local_counts.local();
+                                                   std::vector<CounterRow> &local_counts, size_t num_threads) {
+  tbb::parallel_for(static_cast<size_t>(0), num_threads, [&](size_t tid) {
+    auto [begin, end] = GetChunk(tid, num_threads, size);
 
-    for (size_t i = r.begin(); i < r.end(); ++i) {
-      ++counts[(keys[i] >> shift) & 0xFFU];
+    auto &row = local_counts[tid];
+
+    for (size_t index = begin; index < end; ++index) {
+      ++row[(keys[index] >> shift) & 0xFFU];
     }
   });
 }
 
-void LeonovaARadixMergeSortTBB::ReduceCounts(const tbb::enumerable_thread_specific<CounterRow> &local_counts,
-                                             CounterRow &global_counts) {
+void LeonovaARadixMergeSortTBB::ReduceCounts(const std::vector<CounterRow> &local_counts, CounterRow &global_counts) {
   std::ranges::fill(global_counts, 0);
 
   for (const auto &row : local_counts) {
-    for (size_t i = 0; i < kNumCounters; ++i) {
-      global_counts[i] += row[i];
+    for (size_t index = 0; index < kNumCounters; ++index) {
+      global_counts[index] += row[index];
     }
   }
 }
 
-void LeonovaARadixMergeSortTBB::BuildOffsets(const CounterRow &global_counts,
-                                             const tbb::enumerable_thread_specific<CounterRow> &local_counts,
-                                             std::vector<CounterRow> &thread_offsets) {
-  // 1. Собираем local_counts в стабильный массив
-  std::vector<CounterRow> counts;
-  counts.reserve(local_counts.size());
+void LeonovaARadixMergeSortTBB::BuildOffsets(const std::vector<CounterRow> &local_counts,
+                                             std::vector<CounterRow> &local_offsets, CounterRow &global_counts,
+                                             size_t num_threads) {
+  CounterRow bucket_totals = global_counts;
 
-  for (const auto &row : local_counts) {
-    counts.push_back(row);
+  size_t prefix = 0;
+  for (size_t index = 0; index < kNumCounters; ++index) {
+    size_t count = bucket_totals[index];
+    bucket_totals[index] = prefix;
+    prefix += count;
   }
 
-  const size_t num_threads = counts.size();
+  for (size_t tndex = 0; tndex < num_threads; ++tndex) {
+    auto &offset_row = local_offsets[tndex];
+    const auto &count_row = local_counts[tndex];
 
-  thread_offsets.assign(num_threads, CounterRow(kNumCounters, 0));
-
-  // 2. Глобальные offsets (prefix sum)
-  CounterRow global_offsets(kNumCounters);
-  size_t sum = 0;
-
-  for (size_t i = 0; i < kNumCounters; ++i) {
-    global_offsets[i] = sum;
-    sum += global_counts[i];
-  }
-
-  // 3. Для каждого "потока" считаем смещения
-  CounterRow running = global_offsets;
-
-  for (size_t tindex = 0; tindex < num_threads; ++tindex) {
     for (size_t index = 0; index < kNumCounters; ++index) {
-      thread_offsets[tindex][index] = running[index];
-      running[index] += counts[tindex][index];
+      offset_row[index] = bucket_totals[index];
+      bucket_totals[index] += count_row[index];
     }
   }
 }
 
 void LeonovaARadixMergeSortTBB::ScatterParallel(const std::vector<uint64_t> &keys, const std::vector<int64_t> &arr,
                                                 size_t left, size_t size, int shift,
-                                                std::vector<CounterRow> &thread_offsets, std::vector<int64_t> &temp_arr,
-                                                std::vector<uint64_t> &temp_keys) {
-  const size_t num_threads = thread_offsets.size();
+                                                std::vector<CounterRow> &local_offsets, std::vector<int64_t> &temp_arr,
+                                                std::vector<uint64_t> &temp_keys, size_t num_threads) {
+  tbb::parallel_for(static_cast<size_t>(0), num_threads, [&](size_t tid) {
+    auto [begin, end] = GetChunk(tid, num_threads, size);
 
-  tbb::parallel_for(tbb::blocked_range<size_t>(0, size), [&](const tbb::blocked_range<size_t> &r) {
-    // ⚠️ стабильный thread id
-    int tid = tbb::this_task_arena::current_thread_index();
-    if (tid < 0 || std::cmp_greater_equal(tid, num_threads)) {
-      tid = 0;  // fallback (редкий, но безопасный)
-    }
+    auto &offsets = local_offsets[tid];
 
-    auto &offsets = thread_offsets[tid];
-
-    for (size_t i = r.begin(); i < r.end(); ++i) {
-      const size_t byte = (keys[i] >> shift) & 0xFFU;
+    for (size_t index = begin; index < end; ++index) {
+      const size_t byte = (keys[index] >> shift) & 0xFFU;
       const size_t pos = offsets[byte]++;
 
-      temp_arr[pos] = arr[left + i];
-      temp_keys[pos] = keys[i];
+      temp_arr[pos] = arr[left + index];
+      temp_keys[pos] = keys[index];
     }
   });
 }
@@ -157,8 +147,8 @@ void LeonovaARadixMergeSortTBB::SequentialRadixSort(std::vector<int64_t> &arr, s
   std::vector<int64_t> temp_arr(size);
   std::vector<uint64_t> temp_keys(size);
 
-  for (size_t i = 0; i < size; ++i) {
-    keys[i] = ToUnsignedValue(arr[left + i]);
+  for (size_t index = 0; index < size; ++index) {
+    keys[index] = ToUnsignedValue(arr[left + index]);
   }
 
   for (int byte_pos = 0; byte_pos < kNumBytes; ++byte_pos) {
@@ -167,22 +157,22 @@ void LeonovaARadixMergeSortTBB::SequentialRadixSort(std::vector<int64_t> &arr, s
     std::vector<size_t> counts(kNumCounters, 0);
     std::vector<size_t> offsets(kNumCounters, 0);
 
-    for (size_t i = 0; i < size; ++i) {
-      const size_t byte_val = (keys[i] >> shift) & 0xFFU;
-      ++counts[byte_val];
+    for (size_t index = 0; index < size; ++index) {
+      ++counts[(keys[index] >> shift) & 0xFFU];
     }
 
     size_t sum = 0;
-    for (size_t i = 0; i < kNumCounters; ++i) {
-      offsets[i] = sum;
-      sum += counts[i];
+    for (size_t index = 0; index < kNumCounters; ++index) {
+      offsets[index] = sum;
+      sum += counts[index];
     }
 
-    for (size_t i = 0; i < size; ++i) {
-      const size_t byte_val = (keys[i] >> shift) & 0xFFU;
-      const size_t pos = offsets[byte_val]++;
-      temp_arr[pos] = arr[left + i];
-      temp_keys[pos] = keys[i];
+    for (size_t index = 0; index < size; ++index) {
+      size_t byte = (keys[index] >> shift) & 0xFFU;
+      size_t pos = offsets[byte]++;
+
+      temp_arr[pos] = arr[left + index];
+      temp_keys[pos] = keys[index];
     }
 
     std::ranges::copy(temp_arr, arr.begin() + static_cast<std::ptrdiff_t>(left));
@@ -201,31 +191,33 @@ void LeonovaARadixMergeSortTBB::RadixSort(std::vector<int64_t> &arr, size_t left
     return;
   }
 
+  auto &arena = GetTbbArena();
+
+  const size_t num_threads = std::max<size_t>(1, std::min<size_t>(arena.max_concurrency(), size));
+
   std::vector<uint64_t> keys(size);
   std::vector<uint64_t> temp_keys(size);
   std::vector<int64_t> temp_arr(size);
 
+  std::vector<CounterRow> local_counts(num_threads, CounterRow(kNumCounters, 0));
+  std::vector<CounterRow> local_offsets(num_threads, CounterRow(kNumCounters, 0));
   CounterRow global_counts(kNumCounters);
 
-  tbb::enumerable_thread_specific<CounterRow> local_counts(CounterRow(kNumCounters, 0));
-  std::vector<CounterRow> thread_offsets;
-
-  auto &arena = GetTbbArena();
-
   arena.execute([&] {
-    FillUnsignedKeys(arr, left, size, keys);
+    FillUnsignedKeys(arr, left, size, keys, num_threads);
 
     for (int byte_pos = 0; byte_pos < kNumBytes; ++byte_pos) {
-      int shift = byte_pos * kByteSize;
+      const int shift = byte_pos * kByteSize;
 
-      local_counts.clear();
-      thread_offsets.clear();
+      for (auto &row : local_counts) {
+        std::ranges::fill(row, 0);
+      }
 
-      CountBytesParallel(keys, size, shift, local_counts);
+      CountBytesParallel(keys, size, shift, local_counts, num_threads);
       ReduceCounts(local_counts, global_counts);
-      BuildOffsets(global_counts, local_counts, thread_offsets);
+      BuildOffsets(local_counts, local_offsets, global_counts, num_threads);
 
-      ScatterParallel(keys, arr, left, size, shift, thread_offsets, temp_arr, temp_keys);
+      ScatterParallel(keys, arr, left, size, shift, local_offsets, temp_arr, temp_keys, num_threads);
 
       std::ranges::copy(temp_arr, arr.begin() + static_cast<std::ptrdiff_t>(left));
       keys.swap(temp_keys);
@@ -234,69 +226,56 @@ void LeonovaARadixMergeSortTBB::RadixSort(std::vector<int64_t> &arr, size_t left
 }
 
 void LeonovaARadixMergeSortTBB::SimpleMerge(std::vector<int64_t> &arr, size_t left, size_t mid, size_t right) {
-  const size_t left_size = mid - left;
-  const size_t right_size = right - mid;
+  std::vector<int64_t> merged(right - left);
 
-  std::vector<int64_t> merged(left_size + right_size);
-
-  size_t i = 0;
-  size_t j = 0;
+  size_t i = left;
+  size_t j = mid;
   size_t k = 0;
 
-  while (i < left_size && j < right_size) {
-    if (arr[left + i] <= arr[mid + j]) {
-      merged[k++] = arr[left + i++];
-    } else {
-      merged[k++] = arr[mid + j++];
-    }
+  while (i < mid && j < right) {
+    merged[k++] = (arr[i] <= arr[j]) ? arr[i++] : arr[j++];
   }
-
-  while (i < left_size) {
-    merged[k++] = arr[left + i++];
+  while (i < mid) {
+    merged[k++] = arr[i++];
   }
-
-  while (j < right_size) {
-    merged[k++] = arr[mid + j++];
+  while (j < right) {
+    merged[k++] = arr[j++];
   }
 
   std::ranges::copy(merged, arr.begin() + static_cast<std::ptrdiff_t>(left));
 }
 
 void LeonovaARadixMergeSortTBB::RadixMergeSort(std::vector<int64_t> &arr, size_t left, size_t right) {
-  struct SortTask {
-    size_t left;
-    size_t right;
+  struct Task {
+    size_t l, r;
     bool sorted;
   };
 
-  std::vector<SortTask> stack;
-  stack.reserve(128);
+  std::vector<Task> stack;
   stack.push_back({left, right, false});
 
   while (!stack.empty()) {
-    SortTask current = stack.back();
+    auto [l, r, sorted] = stack.back();
     stack.pop_back();
 
-    const size_t size = current.right - current.left;
-
+    size_t size = r - l;
     if (size <= 1) {
       continue;
     }
 
     if (size <= kRadixThreshold) {
-      RadixSort(arr, current.left, current.right);
+      RadixSort(arr, l, r);
       continue;
     }
 
-    if (!current.sorted) {
-      const size_t mid = current.left + (size / 2);
+    size_t mid = l + (size / 2);
 
-      stack.push_back({current.left, current.right, true});
-      stack.push_back({mid, current.right, false});
-      stack.push_back({current.left, mid, false});
+    if (!sorted) {
+      stack.push_back({l, r, true});
+      stack.push_back({mid, r, false});
+      stack.push_back({l, mid, false});
     } else {
-      const size_t mid = current.left + (size / 2);
-      SimpleMerge(arr, current.left, mid, current.right);
+      SimpleMerge(arr, l, mid, r);
     }
   }
 }
