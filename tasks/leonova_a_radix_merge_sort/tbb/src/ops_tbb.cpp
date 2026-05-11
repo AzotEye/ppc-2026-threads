@@ -228,15 +228,15 @@ void LeonovaARadixMergeSortTBB::RadixSort(std::vector<int64_t> &arr, size_t left
 void LeonovaARadixMergeSortTBB::SimpleMerge(std::vector<int64_t> &arr, size_t left, size_t mid, size_t right) {
   std::vector<int64_t> merged(right - left);
 
-  size_t ind = left;
+  size_t in = left;
   size_t j = mid;
   size_t k = 0;
 
-  while (ind < mid && j < right) {
-    merged[k++] = (arr[ind] <= arr[j]) ? arr[ind++] : arr[j++];
+  while (in < mid && j < right) {
+    merged[k++] = (arr[in] <= arr[j]) ? arr[in++] : arr[j++];
   }
-  while (ind < mid) {
-    merged[k++] = arr[ind++];
+  while (in < mid) {
+    merged[k++] = arr[in++];
   }
   while (j < right) {
     merged[k++] = arr[j++];
