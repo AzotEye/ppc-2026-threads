@@ -27,7 +27,22 @@ class LeonovaARadixMergeSortSTL : public BaseTask {
   bool RunImpl() override;
   bool PostProcessingImpl() override;
 
-  using CounterRow = std::array<size_t, 256>;
+  struct alignas(64) CounterRow {
+    std::array<size_t, 256> values{};
+
+    size_t &At(size_t index) {
+      return values.at(index);
+    }
+
+    [[nodiscard]] const size_t &At(size_t index) const {
+      return values.at(index);
+    }
+
+    void Fill(size_t value) {
+      values.fill(value);
+    }
+  };
+
   using CounterTable = std::vector<CounterRow>;
 
   static void RadixMergeSort(std::vector<int64_t> &arr, size_t left, size_t right);
@@ -42,7 +57,8 @@ class LeonovaARadixMergeSortSTL : public BaseTask {
 
   static std::pair<size_t, size_t> GetChunk(size_t tid, size_t num_threads, size_t size);
 
-  static void ParallelFor(size_t num_threads, const std::function<void(size_t)> &func);
+  template <class Func>
+  static void ParallelFor(size_t num_threads, Func func);
 
   static void FillUnsignedKeys(const std::vector<int64_t> &arr, size_t left, size_t size, std::vector<uint64_t> &keys,
                                size_t num_threads);
@@ -68,5 +84,19 @@ class LeonovaARadixMergeSortSTL : public BaseTask {
 
   static constexpr uint64_t kSignBitMask = 0x8000000000000000ULL;
 };
+
+template <class Func>
+void LeonovaARadixMergeSortSTL::ParallelFor(size_t num_threads, Func func) {
+  std::vector<std::thread> threads;
+  threads.reserve(num_threads);
+
+  for (size_t tid = 0; tid < num_threads; ++tid) {
+    threads.emplace_back([&, tid] { func(tid); });
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+}
 
 }  // namespace leonova_a_radix_merge_sort

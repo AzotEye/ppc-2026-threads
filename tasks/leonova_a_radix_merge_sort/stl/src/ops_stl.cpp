@@ -1,11 +1,8 @@
 #include "leonova_a_radix_merge_sort/stl/include/ops_stl.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -60,19 +57,6 @@ std::pair<size_t, size_t> LeonovaARadixMergeSortSTL::GetChunk(size_t tid, size_t
   return {begin, end};
 }
 
-void LeonovaARadixMergeSortSTL::ParallelFor(size_t num_threads, const std::function<void(size_t)> &func) {
-  std::vector<std::thread> threads;
-  threads.reserve(num_threads);
-
-  for (size_t tid = 0; tid < num_threads; ++tid) {
-    threads.emplace_back([&, tid] { func(tid); });
-  }
-
-  for (auto &thread : threads) {
-    thread.join();
-  }
-}
-
 void LeonovaARadixMergeSortSTL::FillUnsignedKeys(const std::vector<int64_t> &arr, size_t left, size_t size,
                                                  std::vector<uint64_t> &keys, size_t num_threads) {
   ParallelFor(num_threads, [&](size_t tid) {
@@ -92,17 +76,19 @@ void LeonovaARadixMergeSortSTL::CountBytesParallel(const std::vector<uint64_t> &
     auto &row = local_counts[tid];
 
     for (size_t index = begin; index < end; ++index) {
-      ++row.at((keys[index] >> shift) & 0xFFU);
+      const size_t byte = (keys[index] >> shift) & 0xFFU;
+
+      ++row.At(byte);
     }
   });
 }
 
 void LeonovaARadixMergeSortSTL::ReduceCounts(const CounterTable &local_counts, CounterRow &global_counts) {
-  global_counts.fill(0);
+  global_counts.Fill(0);
 
   for (const auto &row : local_counts) {
     for (size_t index = 0; index < kNumCounters; ++index) {
-      global_counts.at(index) += row.at(index);
+      global_counts.At(index) += row.At(index);
     }
   }
 }
@@ -114,8 +100,9 @@ void LeonovaARadixMergeSortSTL::BuildOffsets(const CounterTable &local_counts, C
   size_t prefix = 0;
 
   for (size_t index = 0; index < kNumCounters; ++index) {
-    const size_t count = bucket_totals.at(index);
-    bucket_totals.at(index) = prefix;
+    const size_t count = bucket_totals.At(index);
+
+    bucket_totals.At(index) = prefix;
     prefix += count;
   }
 
@@ -124,8 +111,9 @@ void LeonovaARadixMergeSortSTL::BuildOffsets(const CounterTable &local_counts, C
     const auto &count_row = local_counts[tid];
 
     for (size_t index = 0; index < kNumCounters; ++index) {
-      offset_row.at(index) = bucket_totals.at(index);
-      bucket_totals.at(index) += count_row.at(index);
+      offset_row.At(index) = bucket_totals.At(index);
+
+      bucket_totals.At(index) += count_row.At(index);
     }
   }
 }
@@ -137,12 +125,12 @@ void LeonovaARadixMergeSortSTL::ScatterParallel(const std::vector<uint64_t> &key
   ParallelFor(num_threads, [&](size_t tid) {
     auto [begin, end] = GetChunk(tid, num_threads, size);
 
-    auto &offsets = local_offsets[tid];
+    auto offsets = local_offsets[tid];
 
     for (size_t index = begin; index < end; ++index) {
       const size_t byte = (keys[index] >> shift) & 0xFFU;
 
-      const size_t pos = offsets.at(byte)++;
+      const size_t pos = offsets.At(byte)++;
 
       temp_arr[pos] = arr[left + index];
       temp_keys[pos] = keys[index];
@@ -172,20 +160,22 @@ void LeonovaARadixMergeSortSTL::SequentialRadixSort(std::vector<int64_t> &arr, s
     CounterRow offsets{};
 
     for (size_t index = 0; index < size; ++index) {
-      ++counts.at((keys[index] >> shift) & 0xFFU);
+      const size_t byte = (keys[index] >> shift) & 0xFFU;
+
+      ++counts.At(byte);
     }
 
     size_t prefix = 0;
 
     for (size_t index = 0; index < kNumCounters; ++index) {
-      offsets.at(index) = prefix;
-      prefix += counts.at(index);
+      offsets.At(index) = prefix;
+      prefix += counts.At(index);
     }
 
     for (size_t index = 0; index < size; ++index) {
       const size_t byte = (keys[index] >> shift) & 0xFFU;
 
-      const size_t pos = offsets.at(byte)++;
+      const size_t pos = offsets.At(byte)++;
 
       temp_arr[pos] = arr[left + index];
       temp_keys[pos] = keys[index];
@@ -209,7 +199,8 @@ void LeonovaARadixMergeSortSTL::RadixSort(std::vector<int64_t> &arr, size_t left
     return;
   }
 
-  const size_t num_threads = std::max<size_t>(1, std::min<size_t>(ppc::util::GetNumThreads(), size));
+  const size_t num_threads =
+      std::max<size_t>(1, std::min<size_t>(static_cast<size_t>(ppc::util::GetNumThreads()), size));
 
   std::vector<uint64_t> keys(size);
   std::vector<uint64_t> temp_keys(size);
@@ -226,7 +217,7 @@ void LeonovaARadixMergeSortSTL::RadixSort(std::vector<int64_t> &arr, size_t left
     const int shift = byte_pos * kByteSize;
 
     for (auto &row : local_counts) {
-      row.fill(0);
+      row.Fill(0);
     }
 
     CountBytesParallel(keys, size, shift, local_counts, num_threads);
@@ -246,20 +237,24 @@ void LeonovaARadixMergeSortSTL::RadixSort(std::vector<int64_t> &arr, size_t left
 void LeonovaARadixMergeSortSTL::SimpleMerge(std::vector<int64_t> &arr, size_t left, size_t mid, size_t right) {
   std::vector<int64_t> merged(right - left);
 
-  size_t i = left;
-  size_t j = mid;
-  size_t k = 0;
+  size_t left_index = left;
+  size_t right_index = mid;
+  size_t merged_index = 0;
 
-  while (i < mid && j < right) {
-    merged[k++] = (arr[i] <= arr[j]) ? arr[i++] : arr[j++];
+  while (left_index < mid && right_index < right) {
+    if (arr[left_index] <= arr[right_index]) {
+      merged[merged_index++] = arr[left_index++];
+    } else {
+      merged[merged_index++] = arr[right_index++];
+    }
   }
 
-  while (i < mid) {
-    merged[k++] = arr[i++];
+  while (left_index < mid) {
+    merged[merged_index++] = arr[left_index++];
   }
 
-  while (j < right) {
-    merged[k++] = arr[j++];
+  while (right_index < right) {
+    merged[merged_index++] = arr[right_index++];
   }
 
   std::ranges::copy(merged, arr.begin() + static_cast<std::ptrdiff_t>(left));
@@ -289,6 +284,7 @@ void LeonovaARadixMergeSortSTL::RadixMergeSort(std::vector<int64_t> &arr, size_t
 
     if (size <= kRadixThreshold) {
       RadixSort(arr, current.left, current.right);
+
       continue;
     }
 
@@ -300,6 +296,7 @@ void LeonovaARadixMergeSortSTL::RadixMergeSort(std::vector<int64_t> &arr, size_t
       stack.push_back({mid, current.right, false});
 
       stack.push_back({current.left, mid, false});
+
     } else {
       SimpleMerge(arr, current.left, mid, current.right);
     }
