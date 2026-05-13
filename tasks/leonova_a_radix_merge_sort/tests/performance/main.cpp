@@ -81,8 +81,9 @@ TEST_P(LeonovaARunPerfTests, RunPerfRadix) {
 }
 
 namespace {
-const auto kAllPerfTasks = ppc::util::MakeAllPerfTasks<InType, LeonovaARadixMergeSortSEQ, LeonovaARadixMergeSortOMP, LeonovaARadixMergeSortTBB, LeonovaARadixMergeSortSTL>(
-    PPC_SETTINGS_leonova_a_radix_merge_sort);
+const auto kAllPerfTasks =
+    ppc::util::MakeAllPerfTasks<InType, LeonovaARadixMergeSortSEQ, LeonovaARadixMergeSortOMP, LeonovaARadixMergeSortTBB,
+                                LeonovaARadixMergeSortSTL>(PPC_SETTINGS_leonova_a_radix_merge_sort);
 
 INSTANTIATE_TEST_SUITE_P(RunPerfRadixTests, LeonovaARunPerfTests, ppc::util::TupleToGTestValues(kAllPerfTasks),
                          LeonovaARunPerfTests::CustomPerfTestName);
