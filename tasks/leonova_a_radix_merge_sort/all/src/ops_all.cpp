@@ -12,6 +12,8 @@
 #include "leonova_a_radix_merge_sort/common/include/common.hpp"
 #include "util/include/util.hpp"
 
+static_assert(sizeof(int64_t) == sizeof(std::int64_t));
+
 namespace leonova_a_radix_merge_sort {
 
 LeonovaARadixMergeSortALL::LeonovaARadixMergeSortALL(const InType &in) {
@@ -41,22 +43,46 @@ bool LeonovaARadixMergeSortALL::PostProcessingImpl() {
   return true;
 }
 
+namespace {
+
+void MpiSendInt64(const std::vector<int64_t> &buf, int count, int dest, int tag) {
+  MPI_Send(static_cast<const void *>(buf.data()), count, MPI_INT64_T, dest, tag, MPI_COMM_WORLD);
+}
+
+void MpiRecvInt64(std::vector<int64_t> &buf, int count, int src, int tag) {
+  MPI_Recv(static_cast<void *>(buf.data()), count, MPI_INT64_T, src, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+}
+
+void MpiBcastInt64(std::vector<int64_t> &buf, int count) {
+  MPI_Bcast(static_cast<void *>(buf.data()), count, MPI_INT64_T, 0, MPI_COMM_WORLD);
+}
+
+void MpiScattervInt64(const std::vector<int64_t> &sendbuf, const std::vector<int> &counts,
+                      const std::vector<int> &displs, std::vector<int64_t> &recvbuf, int recv_count, int root) {
+  const void *send_ptr = static_cast<const void *>(sendbuf.data());
+  void *recv_ptr = static_cast<void *>(recvbuf.data());
+  MPI_Scatterv(send_ptr, counts.data(), displs.data(), MPI_INT64_T, recv_ptr, recv_count, MPI_INT64_T, root,
+               MPI_COMM_WORLD);
+}
+
+}  // namespace
+
 inline uint64_t LeonovaARadixMergeSortALL::ToUnsignedValue(int64_t value) {
   return static_cast<uint64_t>(value) ^ kSignBitMask;
 }
 
 void LeonovaARadixMergeSortALL::FillKeys(const std::vector<int64_t> &arr, size_t left, size_t size,
                                          std::vector<uint64_t> &keys) {
-  for (size_t index = 0; index < size; ++index) {
-    keys[index] = ToUnsignedValue(arr[left + index]);
+  for (size_t i = 0; i < size; ++i) {
+    keys[i] = ToUnsignedValue(arr[left + i]);
   }
 }
 
 void LeonovaARadixMergeSortALL::CountBytes(const std::vector<uint64_t> &keys, size_t begin, size_t end, int shift,
                                            std::vector<size_t> &counts) {
   std::ranges::fill(counts, 0);
-  for (size_t index = begin; index < end; ++index) {
-    ++counts[(keys[index] >> shift) & 0xFFU];
+  for (size_t i = begin; i < end; ++i) {
+    ++counts[(keys[i] >> shift) & 0xFFU];
   }
 }
 
@@ -64,11 +90,11 @@ void LeonovaARadixMergeSortALL::ScatterBytes(const std::vector<uint64_t> &src_ke
                                              size_t left, size_t begin, size_t end, int shift,
                                              std::vector<size_t> &offsets, std::vector<int64_t> &dst_arr,
                                              std::vector<uint64_t> &dst_keys) {
-  for (size_t index = begin; index < end; ++index) {
-    const size_t bucket = (src_keys[index] >> shift) & 0xFFU;
+  for (size_t i = begin; i < end; ++i) {
+    const size_t bucket = (src_keys[i] >> shift) & 0xFFU;
     const size_t pos = offsets[bucket]++;
-    dst_arr[pos] = src_arr[left + index];
-    dst_keys[pos] = src_keys[index];
+    dst_arr[pos] = src_arr[left + i];
+    dst_keys[pos] = src_keys[i];
   }
 }
 
@@ -120,8 +146,8 @@ void LeonovaARadixMergeSortALL::ParallelRadixSort(std::vector<int64_t> &arr, siz
   for (size_t tndex = 0; tndex < num_threads; ++tndex) {
     futures.push_back(std::async(std::launch::async, sort_chunk, boundaries[tndex], boundaries[tndex + 1]));
   }
-  for (auto &fndex : futures) {
-    fndex.get();
+  for (auto &f : futures) {
+    f.get();
   }
 
   MergeChunks(arr, boundaries);
@@ -203,7 +229,7 @@ void LeonovaARadixMergeSortALL::HierarchicalMerge(std::vector<int64_t> &local_da
 
         if (incoming_size > 0) {
           std::vector<int64_t> incoming(static_cast<size_t>(incoming_size));
-          MPI_Recv(incoming.data(), incoming_size, MPI_LONG, partner, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+          MpiRecvInt64(incoming, incoming_size, partner, 1);
           MergeSortedVectors(local_data, incoming);
         }
       }
@@ -213,7 +239,7 @@ void LeonovaARadixMergeSortALL::HierarchicalMerge(std::vector<int64_t> &local_da
       MPI_Send(&send_size, 1, MPI_INT, partner, 0, MPI_COMM_WORLD);
 
       if (send_size > 0) {
-        MPI_Send(local_data.data(), send_size, MPI_LONG, partner, 1, MPI_COMM_WORLD);
+        MpiSendInt64(local_data, send_size, partner, 1);
       }
 
       local_data.clear();
@@ -233,7 +259,7 @@ void LeonovaARadixMergeSortALL::BroadcastResult(std::vector<int64_t> &local_data
     local_data.resize(static_cast<size_t>(total));
   }
 
-  MPI_Bcast(local_data.data(), result_size, MPI_LONG, 0, MPI_COMM_WORLD);
+  MpiBcastInt64(local_data, result_size);
 }
 
 bool LeonovaARadixMergeSortALL::RunImpl() {
@@ -273,8 +299,7 @@ bool LeonovaARadixMergeSortALL::RunImpl() {
   if (world_size == 1) {
     local_data = GetInput();
   } else {
-    MPI_Scatterv(rank == 0 ? GetInput().data() : nullptr, send_counts.data(), send_displs.data(), MPI_LONG,
-                 local_data.data(), recv_count, MPI_LONG, 0, MPI_COMM_WORLD);
+    MpiScattervInt64(GetInput(), send_counts, send_displs, local_data, recv_count, 0);
   }
 
   if (recv_count > 1) {
